@@ -32,7 +32,7 @@ class ImportService
              *  Cash Receipts (الإيصالات النقدية)
              * ----------------------------------------- */
             $cashReceipts = Receipt::with(['user:id,name','customer:id,name'])
-                ->where('type', 'نقدي')
+                ->where('type', '1')
                 ->when($date, fn($query) => $query->whereDate('receipt_date', $date))
                 ->orderByDesc('created_at')
                 ->get()
