@@ -64,7 +64,7 @@ class ImportService
              *  Installment Payments (دفعات الأقساط)
              * ----------------------------------------- */
             $installmentPayments = InstallmentPayment::with([
-                    'user:id,name',
+                    'activities.user:id,name',
                     'installment:id,receipt_product_id',
                     'installment.receiptProduct:id,receipt_id',
                     'installment.receiptProduct.receipt:id,customer_id',
@@ -76,7 +76,7 @@ class ImportService
                 ->map(fn($p) => [
                     'amount'        => $p->amount ?? 0,
                     'date'          => optional($p->payment_date)->format('Y-m-d'),
-                    'user'          => $p->user->name ?? 'غير معروف',
+   'user' => optional($p->activities->first()?->user)->name ?? 'غير معروف',
                     'type'          => 'قسط دين',
                     'customer_name' => $p->installment?->receiptProduct?->receipt?->customer->name ?? 'غير معروف',
                 ]);
