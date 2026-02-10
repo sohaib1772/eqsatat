@@ -11,8 +11,6 @@ use App\Rules\AvailableQuantityStore;
 
 class StoreReceiptData extends FormRequest
 {
-    // ... authorize() ...
-
     public function rules(): array
     {
         return [
@@ -26,7 +24,7 @@ class StoreReceiptData extends FormRequest
             'products' => 'required|array',
             'products.*.product_id' => 'required|exists:products,id',
             'products.*.description' => 'nullable|string|max:255',
-            'products.*.selling_price' => 'nullable|integer:',
+            'products.*.selling_price' => 'nullable|integer',
             'products.*.quantity' => [
                 'required',
                 'integer',
@@ -42,20 +40,25 @@ class StoreReceiptData extends FormRequest
                 }
             ],
 
-            'products.*.pay_cont' => 'required_if:type,اقساط|nullable|integer|min:0',
-            'products.*.installment' => 'required_if:type,اقساط|nullable|integer|min:0',
-            'products.*.installment_type' => 'required_if:type,اقساط|nullable|in:,يومي,شهري,اسبوعي',
+
+            'products.*.pay_cont' => 'required_if:type,اقساط|integer|min:0',
+            'products.*.installment' => 'required_if:type,اقساط|integer|min:0',
+            'products.*.installment_type' => 'required_if:type,اقساط|in:يومي,شهري,اسبوعي',
 
             'products.*.first_pay' => [
                 'required_if:type,اقساط',
-                'nullable',
                 'integer',
                 'min:0',
                 function ($attribute, $value, $fail) {
+                    // فقط إذا كان النوع "اقساط"
+                    if ($this->input('type') !== 'اقساط') {
+                        return;
+                    }
+
                     $index = explode('.', $attribute)[1];
                     $productId = $this->input("products.{$index}.product_id");
                     $quantity = $this->input("products.{$index}.quantity");
-                    Log::error("message".    $attribute);
+
                     $rule = new FirstInstallmentAmountValid((int) $productId, (int) $quantity);
                     if (!$rule->passes($attribute, $value)) {
                         $fail($rule->message());
@@ -65,9 +68,6 @@ class StoreReceiptData extends FormRequest
         ];
     }
 
-    /**
-     * Handle a failed validation attempt.
-     */
     protected function failedValidation(Validator $validator): void
     {
         throw new HttpResponseException(response()->json([

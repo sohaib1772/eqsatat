@@ -49,9 +49,6 @@ class ReceiptService extends Service
         }
     }
 
-
-
-
     /**
      * Create a new receipt and its related products (and installments if needed).
      */
@@ -60,12 +57,29 @@ class ReceiptService extends Service
         DB::beginTransaction();
 
         try {
+            // ✅ التحقق المبكر من بيانات الأقساط
+            if ($data['type'] === 'اقساط') {
+                $this->validateInstallmentData($data['products']);
+            }
+
+            Log::info('Creating receipt', [
+                'customer_id' => $data['customer_id'],
+                'type' => $data['type'],
+                'products_count' => count($data['products'])
+            ]);
+
             $receipt = $this->storeReceipt($data);
+
+            Log::info('Receipt created', ['receipt_id' => $receipt->id]);
 
             $this->storeReceiptProducts($receipt, $data['products'], $data['type']);
 
+            Log::info('Receipt products stored successfully', ['receipt_id' => $receipt->id]);
 
             DB::commit();
+
+            // ✅ تنظيف الكاش بعد النجاح
+            $this->clearReceiptsCache();
 
             return [
                 'status' => 200,
@@ -73,12 +87,50 @@ class ReceiptService extends Service
             ];
         } catch (Exception $e) {
             DB::rollBack();
-            Log::error('Error in createReceipt: ' . $e->getMessage(), ['data' => $data, 'exception' => $e]);
+
+            Log::error('Error in createReceipt', [
+                'message' => $e->getMessage(),
+                'line' => $e->getLine(),
+                'file' => $e->getFile(),
+                'trace' => $e->getTraceAsString(),
+                'data' => $data
+            ]);
 
             return [
                 'status' => 500,
-                'message' => 'حدث خطأ أثناء إنشاء الفاتورة, يرجى المحاولة مرة اخرى ',
+                'message' => 'حدث خطأ أثناء إنشاء الفاتورة: ' . $e->getMessage(),
             ];
+        }
+    }
+
+    /**
+     * ✅ Validate installment data before processing
+     */
+    protected function validateInstallmentData(array $products)
+    {
+        foreach ($products as $index => $productData) {
+            $missingFields = [];
+
+            if (!isset($productData['pay_cont'])) {
+                $missingFields[] = 'عدد الأقساط';
+            }
+            if (!isset($productData['first_pay'])) {
+                $missingFields[] = 'الدفعة الأولى';
+            }
+            if (!isset($productData['installment'])) {
+                $missingFields[] = 'قيمة القسط';
+            }
+            if (!isset($productData['installment_type'])) {
+                $missingFields[] = 'نوع القسط';
+            }
+
+            if (!empty($missingFields)) {
+                throw new Exception(
+                    "بيانات القسط غير مكتملة للمنتج رقم " . ($index + 1) .
+                    " (ID: " . ($productData['product_id'] ?? 'غير محدد') . "). " .
+                    "الحقول المفقودة: " . implode(', ', $missingFields)
+                );
+            }
         }
     }
 
@@ -87,8 +139,6 @@ class ReceiptService extends Service
      */
     protected function storeReceipt(array $data)
     {
-
-
         $receipt = Receipt::create([
             'customer_id'    => $data['customer_id'],
             'receipt_number' => $data['receipt_number'],
@@ -105,7 +155,8 @@ class ReceiptService extends Service
             'type_id'     => $receipt->id,
             'type_type'   => Receipt::class,
         ]);
-        return   $receipt;
+
+        return $receipt;
     }
 
     /**
@@ -113,31 +164,50 @@ class ReceiptService extends Service
      */
     protected function storeReceiptProducts(Receipt $receipt, array $products, string $type)
     {
-        foreach ($products as $productData) {
-            $product = Product::findOrFail($productData['product_id']);
+        foreach ($products as $index => $productData) {
+            try {
+                Log::info("Processing product {$index}", ['product_data' => $productData]);
 
-            $buyingPrice = $product->getCalculatedBuyingPrice();
-            $sellingPrice = $product->getSellingPriceForReceiptType($type);
+                $product = Product::findOrFail($productData['product_id']);
 
-            $receiptProduct = $receipt->receiptProducts()->create([
-                'product_id'     => $productData['product_id'],
-                'description'    => $productData['description'] ?? null,
-                'quantity'       => $productData['quantity'],
-                'buying_price'   => $buyingPrice,
-                'selling_price'  => $productData['selling_price'] ?? $product->getSellingPriceForReceiptType($type),
+                $buyingPrice = $product->getCalculatedBuyingPrice();
+                $sellingPrice = $productData['selling_price'] ?? $product->getSellingPriceForReceiptType($type);
 
-            ]);
+                $receiptProduct = $receipt->receiptProducts()->create([
+                    'product_id'     => $productData['product_id'],
+                    'description'    => $productData['description'] ?? null,
+                    'quantity'       => $productData['quantity'],
+                    'buying_price'   => $buyingPrice,
+                    'selling_price'  => $sellingPrice,
+                ]);
 
-            // Update inventory via event
+                Log::info("Receipt product created", ['receipt_product_id' => $receiptProduct->id]);
 
-            event(new ReceiptCreated($productData['product_id'], $productData['quantity']));
-            // Handle installments if type is "اقساط"
-            if ($type === 'اقساط') {
-                if (!isset($productData['pay_cont'], $productData['first_pay'], $productData['installment'], $productData['installment_type'])) {
-                    throw new Exception("بيانات القسط غير مكتملة للمنتج ID: " . $productData['product_id']);
+                // ✅ Handle installments قبل الـ event
+                if ($type === 'اقساط') {
+                    $this->createInstallment($receiptProduct, $productData);
+                    Log::info("Installment created for product {$index}");
                 }
 
-                $this->createInstallment($receiptProduct, $productData);
+                // ✅ Update inventory via event مع معالجة الأخطاء
+                try {
+                    event(new ReceiptCreated($productData['product_id'], $productData['quantity']));
+                    Log::info("Event dispatched for product {$index}");
+                } catch (Exception $eventException) {
+                    // ✅ لا نريد أن فشل الـ event يوقف العملية
+                    Log::error("Event failed but continuing", [
+                        'product_id' => $productData['product_id'],
+                        'error' => $eventException->getMessage()
+                    ]);
+                }
+
+            } catch (Exception $e) {
+                Log::error("Error processing product {$index}", [
+                    'error' => $e->getMessage(),
+                    'product_data' => $productData
+                ]);
+
+                throw new Exception("خطأ في معالجة المنتج رقم " . ($index + 1) . ": " . $e->getMessage());
             }
         }
     }
@@ -147,12 +217,22 @@ class ReceiptService extends Service
      */
     protected function createInstallment(ReceiptProduct $receiptProduct, array $productData)
     {
-        $receiptProduct->installment()->create([
+        // ✅ Double check (defensive programming)
+        if (!isset($productData['pay_cont'], $productData['first_pay'],
+                   $productData['installment'], $productData['installment_type'])) {
+            throw new Exception("بيانات القسط غير مكتملة للمنتج ID: " . $productData['product_id']);
+        }
+
+        $installment = $receiptProduct->installment()->create([
             'pay_cont'         => $productData['pay_cont'],
             'first_pay'        => $productData['first_pay'],
             'installment'      => $productData['installment'],
             'installment_type' => $productData['installment_type']
         ]);
+
+        Log::info('Installment created', ['installment_id' => $installment->id]);
+
+        return $installment;
     }
 
     /**
@@ -178,6 +258,11 @@ class ReceiptService extends Service
 
             $products = $data['products'];
 
+            // ✅ التحقق من بيانات الأقساط إذا كان النوع أقساط
+            if ($receipt->type === 'اقساط') {
+                $this->validateInstallmentData($products);
+            }
+
             // تحديث بيانات الفاتورة الأساسية
             $this->updateReceipt($receipt, $data);
 
@@ -189,7 +274,16 @@ class ReceiptService extends Service
 
             foreach ($deletedProductIds as $productIdToRemove) {
                 $productToRemove = $existingReceiptProducts->get($productIdToRemove);
-                event(new ReceiptCreated($productToRemove->product_id, -$productToRemove->quantity));
+
+                try {
+                    event(new ReceiptCreated($productToRemove->product_id, -$productToRemove->quantity));
+                } catch (Exception $eventException) {
+                    Log::error("Event failed during product deletion", [
+                        'product_id' => $productToRemove->product_id,
+                        'error' => $eventException->getMessage()
+                    ]);
+                }
+
                 $productToRemove->delete();
             }
 
@@ -200,7 +294,7 @@ class ReceiptService extends Service
                     $product = Product::findOrFail($productId);
                     $receiptType = $receipt->type;
                     $buyingPrice = $product->getCalculatedBuyingPrice();
-                    $sellingPrice = $product->getSellingPriceForReceiptType($receiptType);
+                    $sellingPrice = $productData['selling_price'] ?? $product->getSellingPriceForReceiptType($receiptType);
 
                     $receiptProduct = $receipt->receiptProducts()->create([
                         'receipt_id'    => $receipt->id,
@@ -211,7 +305,14 @@ class ReceiptService extends Service
                         'selling_price' => $sellingPrice,
                     ]);
 
-                    event(new ReceiptCreated($productId, (int)$productData['quantity']));
+                    try {
+                        event(new ReceiptCreated($productId, (int)$productData['quantity']));
+                    } catch (Exception $eventException) {
+                        Log::error("Event failed during product addition", [
+                            'product_id' => $productId,
+                            'error' => $eventException->getMessage()
+                        ]);
+                    }
 
                     if ($receiptType === 'اقساط') {
                         $this->createInstallment($receiptProduct, $productData);
@@ -231,7 +332,14 @@ class ReceiptService extends Service
 
                     $quantityDifference = $newQuantity - $oldQuantity;
                     if ($quantityDifference !== 0) {
-                        event(new ReceiptCreated($productId, $quantityDifference));
+                        try {
+                            event(new ReceiptCreated($productId, $quantityDifference));
+                        } catch (Exception $eventException) {
+                            Log::error("Event failed during product update", [
+                                'product_id' => $productId,
+                                'error' => $eventException->getMessage()
+                            ]);
+                        }
                     }
 
                     if ($receipt->type === 'اقساط') {
@@ -241,7 +349,11 @@ class ReceiptService extends Service
             }
 
             $this->updateTotalPrice($receipt);
+
             DB::commit();
+
+            // ✅ تنظيف الكاش
+            $this->clearReceiptsCache();
 
             return [
                 'status' => 200,
@@ -249,19 +361,20 @@ class ReceiptService extends Service
             ];
         } catch (Exception $e) {
             DB::rollBack();
-            Log::error('Error in updateReceiptWithProducts: ' . $e->getMessage(), [
+
+            Log::error('Error in updateReceiptWithProducts', [
                 'receipt_id' => $receipt->id,
-                'data'       => $data,
-                'exception'  => $e
+                'message' => $e->getMessage(),
+                'line' => $e->getLine(),
+                'data' => $data
             ]);
 
             return [
                 'status' => 500,
-                'message' => 'حدث خطأ أثناء تحديث الفاتورة, يرجى المحاولة مرة اخرى.',
+                'message' => 'حدث خطأ أثناء تحديث الفاتورة: ' . $e->getMessage(),
             ];
         }
     }
-
 
     /**
      * Update receipt base info (not products).
@@ -273,6 +386,7 @@ class ReceiptService extends Service
             'notes'        => $data['notes'] ?? $receipt->notes,
             'receipt_date' => $data['receipt_date'] ?? $receipt->receipt_date,
         ]);
+
         ActivitiesLog::create([
             'user_id'     => Auth::id(),
             'description' => 'تم تعديل فاتورة ذات الرقم : ' . $receipt->receipt_number,
@@ -317,15 +431,23 @@ class ReceiptService extends Service
     public function deleteReceipt(Receipt $receipt)
     {
         DB::beginTransaction();
+
         try {
             $receipt->load('receiptProducts');
 
             if ($receipt->receiptProducts->isNotEmpty()) {
                 foreach ($receipt->receiptProducts as $receiptProduct) {
-
-                    event(new ReceiptCreated($receiptProduct->product_id, -$receiptProduct->quantity));
+                    try {
+                        event(new ReceiptCreated($receiptProduct->product_id, -$receiptProduct->quantity));
+                    } catch (Exception $eventException) {
+                        Log::error("Event failed during receipt deletion", [
+                            'product_id' => $receiptProduct->product_id,
+                            'error' => $eventException->getMessage()
+                        ]);
+                    }
                 }
             }
+
             $receipt->delete();
 
             ActivitiesLog::create([
@@ -335,9 +457,10 @@ class ReceiptService extends Service
                 'type_type'   => Receipt::class,
             ]);
 
-
-
             DB::commit();
+
+            // ✅ تنظيف الكاش
+            $this->clearReceiptsCache();
 
             return [
                 'status' => 200,
@@ -345,12 +468,35 @@ class ReceiptService extends Service
             ];
         } catch (Exception $e) {
             DB::rollBack();
-            Log::error('Error in deleteReceipt: ' . $e->getMessage(), ['receipt_id' => $receipt->id, 'exception' => $e]);
+
+            Log::error('Error in deleteReceipt', [
+                'receipt_id' => $receipt->id,
+                'message' => $e->getMessage(),
+                'line' => $e->getLine()
+            ]);
 
             return [
                 'status' => 500,
-                'message' => 'حدث خطأ أثناء حذف الفاتورة، يرجى المحاولة مرة أخرى.',
+                'message' => 'حدث خطأ أثناء حذف الفاتورة: ' . $e->getMessage(),
             ];
+        }
+    }
+
+    /**
+     * ✅ Clear all receipts cache
+     */
+    protected function clearReceiptsCache(): void
+    {
+        try {
+            $cacheKeys = Cache::get('all_receipts_keys', []);
+            foreach ($cacheKeys as $key) {
+                Cache::forget($key);
+            }
+            Cache::forget('all_receipts_keys');
+
+            Log::info('Receipts cache cleared successfully');
+        } catch (Exception $e) {
+            Log::warning('Failed to clear receipts cache', ['error' => $e->getMessage()]);
         }
     }
 }
