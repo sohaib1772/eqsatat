@@ -9,6 +9,7 @@ use App\Http\Requests\ProductRequest\filtterdata;
 use App\Http\Requests\ProductRequest\StoreProductData;
 use App\Http\Requests\ProductRequest\UpdateProductData;
 use App\Http\Requests\ProductRequest\FiltterProductData;
+use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 
 class ProductController extends Controller
@@ -104,6 +105,23 @@ class ProductController extends Controller
         // Return success response if deletion was successful, otherwise return error.
         return $result['status'] === 200
             ? self::success(null, $result['message'], $result['status'])
+            : self::error(null, $result['message'], $result['status']);
+    }
+
+    /**
+     * Retrieve products for printing with basic info (name and optionally price).
+     *
+     * @param Request $request The request containing filters (category_ids, with_price).
+     * @return JsonResponse JSON response with product list for printing.
+     */
+    public function printItems(Request $request): JsonResponse
+    {
+        // Fetch products using ProductService.
+        $result = $this->productService->getPrintableItems($request->all());
+
+        // Return success response if successful, otherwise return error.
+        return $result['status'] === 200
+            ? self::success($result['data'], $result['message'], $result['status'])
             : self::error(null, $result['message'], $result['status']);
     }
 }

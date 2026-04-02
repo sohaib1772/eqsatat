@@ -62,6 +62,19 @@ class ProductService extends Service
                     ])
                     ->when(!empty($filteringData), function ($query) use ($filteringData) {
                         $query->filterBy($filteringData);
+                        
+                        // إضافة الاستعلام الفرعي لجلب آخر سعر بيع عند تمرير customer_id
+                        if (!empty($filteringData['customer_id'])) {
+                            $customerId = $filteringData['customer_id'];
+                            $query->addSelect([
+                                'last_selling_price' => \App\Models\ReceiptProduct::select('selling_price')
+                                    ->join('receipts', 'receipts.id', '=', 'receipt_products.receipt_id')
+                                    ->whereColumn('receipt_products.product_id', 'products.id')
+                                    ->where('receipts.customer_id', $customerId)
+                                    ->orderByDesc('receipts.created_at')
+                                    ->limit(1)
+                            ]);
+                        }
                     })
                     ->orderByDesc('created_at')
                     ->paginate(10);
@@ -250,6 +263,68 @@ class ProductService extends Service
             return [
                 'status'  => 500,
                 'message' => 'حدث خطأ أثناء حذف المنتج، يرجى المحاولة مرة أخرى.',
+            ];
+        }
+    }
+
+    /**
+     * Retrieve products for printing, with optional category filtering and price inclusion.
+     *
+     * @param array $filters Query parameters for filtering (category_ids, with_price).
+     * @return array Structured response with product data.
+     */
+    public function getPrintableItems(array $filters): array
+    {
+        try {
+            $query = Product::query();
+
+            // Filter by categories if provided
+            if (!empty($filters['category_ids'])) {
+                $categoryIds = is_array($filters['category_ids']) 
+                    ? $filters['category_ids'] 
+                    : explode(',', $filters['category_ids']);
+                $query->whereIn('category_id', $categoryIds);
+            }
+
+            // Only return available items (quantity > 0)
+            $query->where('quantity', '>', 0);
+
+            // Price selection logic: 'selling', 'installment', 'both', 'none'
+            $priceType = $filters['price_type'] ?? ($filters['with_price'] ?? true ? 'selling' : 'none');
+            
+            // Normalize true/false from old with_price if passed
+            if ($priceType === true || $priceType === '1' || $priceType === 'true') {
+                $priceType = 'selling';
+            } elseif ($priceType === false || $priceType === '0' || $priceType === 'false') {
+                $priceType = 'none';
+            }
+
+            $products = $query->get()->map(function ($product) use ($priceType) {
+                $data = ['name' => $product->name];
+                
+                if ($priceType === 'both') {
+                    $data['selling_price'] = $product->selling_price;
+                    $data['installment_price'] = $product->installment_price;
+                } elseif ($priceType === 'selling') {
+                    $data['price'] = $product->selling_price;
+                } elseif ($priceType === 'installment') {
+                    $data['price'] = $product->installment_price;
+                }
+                
+                return $data;
+            });
+
+            return [
+                'status'  => 200,
+                'message' => 'تم جلب البيانات بنجاح.',
+                'data'    => $products,
+            ];
+
+        } catch (Exception $e) {
+            Log::error('Error in getPrintableItems: ' . $e->getMessage());
+            return [
+                'status'  => 500,
+                'message' => 'حدث خطأ أثناء جلب البيانات.',
             ];
         }
     }

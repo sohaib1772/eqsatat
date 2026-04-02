@@ -80,6 +80,7 @@ class ReceiptService extends Service
 
             // ✅ تنظيف الكاش بعد النجاح
             $this->clearReceiptsCache();
+            $this->clearProductsCache(); // ✅ تنظيف كاش المنتجات ليعكس التحديث في التعديلات
 
             return [
                 'status' => 200,
@@ -144,6 +145,8 @@ class ReceiptService extends Service
             'receipt_number' => $data['receipt_number'],
             'type'           => $data['type'],
             'total_price'    => $data['total_price'],
+            'discount'       => $data['discount_amount'] ?? 0,
+            'paid'           => $data['paid_amount'] ?? 0,
             'notes'          => $data['notes'] ?? null,
             'receipt_date'   => $data['receipt_date'] ?? now(),
             'user_id'        => Auth::id(),
@@ -155,6 +158,10 @@ class ReceiptService extends Service
             'type_id'     => $receipt->id,
             'type_type'   => Receipt::class,
         ]);
+
+        if ($receipt->type === 'دين' || $receipt->type === 2) {
+            $this->createLinkedDebt($receipt);
+        }
 
         return $receipt;
     }
@@ -233,6 +240,108 @@ class ReceiptService extends Service
         Log::info('Installment created', ['installment_id' => $installment->id]);
 
         return $installment;
+    }
+
+    /**
+     * Create a debt record linked to a debt receipt.
+     */
+    protected function createLinkedDebt(Receipt $receipt)
+    {
+        $netDebt = $receipt->total_price - ($receipt->discount ?? 0);
+        $paid = $receipt->paid ?? 0;
+        
+        // Ensure net debt doesn't go below zero if discount is somehow larger
+        $remainingDebt = max(0, $netDebt - $paid);
+
+        $debt = \App\Models\Debt::create([
+            'customer_id'    => $receipt->customer_id,
+            'remaining_debt' => $netDebt, // The original total debt before payments
+            'payment_amount' => $netDebt, // Usually records the amount of debt
+            'debt_date'      => $receipt->receipt_date ?? now(),
+            'description'    => "دين بناءً على الفاتورة رقم: {$receipt->receipt_number}" . ($receipt->notes ? " - {$receipt->notes}" : ''),
+            'user_id'        => Auth::id(),
+        ]);
+
+        if ($paid > 0) {
+            $debt->debtPayments()->create([
+                'amount'       => $paid,
+                'user_id'      => Auth::id(),
+                'payment_date' => $receipt->receipt_date ?? now(),
+            ]);
+        }
+
+        return $debt;
+    }
+
+    /**
+     * Sync the linked debt when a receipt is updated.
+     */
+    protected function syncLinkedDebt(Receipt $receipt)
+    {
+        $debt = \App\Models\Debt::where('customer_id', $receipt->customer_id)
+            ->where('description', 'like', "دين بناءً على الفاتورة رقم: {$receipt->receipt_number}%")
+            ->first();
+
+        if ($receipt->type === 'دين' || $receipt->type === 2) {
+            $netDebt = $receipt->total_price - ($receipt->discount ?? 0);
+            $paid = $receipt->paid ?? 0;
+            // Ensure net debt doesn't go below zero
+            $remainingDebt = max(0, $netDebt - $paid);
+
+            if ($debt) {
+                // Update existing debt
+                $debt->update([
+                    'remaining_debt' => $netDebt,
+                    'payment_amount' => $netDebt,
+                    'debt_date'      => $receipt->receipt_date ?? $debt->debt_date,
+                    'description'    => "دين بناءً على الفاتورة رقم: {$receipt->receipt_number}" . ($receipt->notes ? " - {$receipt->notes}" : ''),
+                ]);
+
+                // Update the initial payment if needed
+                $initialPayment = $debt->debtPayments()->orderBy('id', 'asc')->first();
+                if ($paid > 0) {
+                    if ($initialPayment) {
+                        $initialPayment->update([
+                            'amount' => $paid,
+                            'payment_date' => $receipt->receipt_date ?? $initialPayment->payment_date,
+                        ]);
+                    } else {
+                        $debt->debtPayments()->create([
+                            'amount'       => $paid,
+                            'user_id'      => Auth::id(),
+                            'payment_date' => $receipt->receipt_date ?? now(),
+                        ]);
+                    }
+                } elseif ($initialPayment) {
+                    // If paid was changed to 0 but a payment existed
+                    $initialPayment->delete();
+                }
+            } else {
+                // If it wasn't a debt receipt before but now it is
+                $this->createLinkedDebt($receipt);
+            }
+        } else {
+            // If the receipt is no longer a debt receipt, remove the debt
+            if ($debt) {
+                $debt->debtPayments()->delete();
+                $debt->delete();
+            }
+        }
+    }
+
+    /**
+     * Delete the linked debt when a receipt is deleted.
+     */
+    protected function deleteLinkedDebt(Receipt $receipt)
+    {
+        $debt = \App\Models\Debt::where('customer_id', $receipt->customer_id)
+            ->where('description', 'like', "دين بناءً على الفاتورة رقم: {$receipt->receipt_number}%")
+            ->first();
+
+        if ($debt) {
+            $debt->debtPayments()->delete();
+            $debt->delete();
+        }
     }
 
     /**
@@ -350,10 +459,14 @@ class ReceiptService extends Service
 
             $this->updateTotalPrice($receipt);
 
+            // ✅ Sync Debt record if receipt type or totals changed
+            $this->syncLinkedDebt($receipt);
+
             DB::commit();
 
             // ✅ تنظيف الكاش
             $this->clearReceiptsCache();
+            $this->clearProductsCache(); // ✅ تنظيف كاش المنتجات ليعكس التحديث في التعديلات
 
             return [
                 'status' => 200,
@@ -383,6 +496,8 @@ class ReceiptService extends Service
     {
         $receipt->update([
             'customer_id'  => $data['customer_id'] ?? $receipt->customer_id,
+            'discount'     => isset($data['discount_amount']) ? $data['discount_amount'] : $receipt->discount,
+            'paid'         => isset($data['paid_amount']) ? $data['paid_amount'] : $receipt->paid,
             'notes'        => $data['notes'] ?? $receipt->notes,
             'receipt_date' => $data['receipt_date'] ?? $receipt->receipt_date,
         ]);
@@ -448,6 +563,9 @@ class ReceiptService extends Service
                 }
             }
 
+            // ✅ Delete the linked Debt record if it exists before deleting the receipt
+            $this->deleteLinkedDebt($receipt);
+
             $receipt->delete();
 
             ActivitiesLog::create([
@@ -461,6 +579,7 @@ class ReceiptService extends Service
 
             // ✅ تنظيف الكاش
             $this->clearReceiptsCache();
+            $this->clearProductsCache(); // ✅ تنظيف كاش المنتجات ليعكس التحديث في التعديلات
 
             return [
                 'status' => 200,
@@ -497,6 +616,24 @@ class ReceiptService extends Service
             Log::info('Receipts cache cleared successfully');
         } catch (Exception $e) {
             Log::warning('Failed to clear receipts cache', ['error' => $e->getMessage()]);
+        }
+    }
+
+    /**
+     * ✅ Clear all products cache
+     */
+    protected function clearProductsCache(): void
+    {
+        try {
+            $cacheKeys = Cache::get('all_products_keys', []);
+            foreach ($cacheKeys as $key) {
+                Cache::forget($key);
+            }
+            Cache::forget('all_products_keys');
+
+            Log::info('Products cache cleared successfully from ReceiptService');
+        } catch (Exception $e) {
+            Log::warning('Failed to clear products cache', ['error' => $e->getMessage()]);
         }
     }
 }

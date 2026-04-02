@@ -16,8 +16,10 @@ class StoreReceiptData extends FormRequest
         return [
             'customer_id' => 'required|exists:customers,id',
             'receipt_number' => 'required|integer|unique:receipts,receipt_number',
-            'type' => 'required|in:اقساط,نقدي',
+            'type' => 'required|in:اقساط,نقدي,دين',
             'total_price' => 'required|integer',
+            'discount_amount' => 'nullable|integer|min:0',
+            'paid_amount' => 'nullable|integer|min:0',
             'notes' => 'nullable|string',
             'receipt_date' => 'nullable|date|before_or_equal:now',
 

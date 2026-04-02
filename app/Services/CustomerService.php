@@ -65,15 +65,20 @@ class CustomerService extends Service
                 $firstPays = 0;
                 $receiptTotalPrice = 0;
                 $installmentsPaid = 0;
+                $debtReceiptsDiscountAndPaid = 0;
 
-                // حساب الفواتير + الأقساط
-                foreach ($customer->receipts->where('type', "اقساط") as $receipt) {
-
-                    $receiptTotalPrice += $receipt->total_price;
-                    foreach ($receipt->receiptProducts as $receiptProduct) {
-                        if ($receiptProduct->installment) {
-                            $firstPays += $receiptProduct->installment->first_pay ?? 0;
-                            $installmentsPaid += $receiptProduct->installment->installmentPayments->sum('amount');
+                // حساب الفواتير + الأقساط + الدين
+                foreach ($customer->receipts->whereIn('type', ["اقساط", "دين", 0, 2]) as $receipt) {
+                    if ($receipt->type === "دين" || $receipt->type === 2) {
+                        // يتم تجاهل جمع إجمالي فاتورة الدين هنا، لأن الرصيد سيتم حسابه
+                        // من خلال جدول debts الذي أضفنا إليه سجل جديد.
+                    } else {
+                        $receiptTotalPrice += $receipt->total_price;
+                        foreach ($receipt->receiptProducts as $receiptProduct) {
+                            if ($receiptProduct->installment) {
+                                $firstPays += $receiptProduct->installment->first_pay ?? 0;
+                                $installmentsPaid += $receiptProduct->installment->installmentPayments->sum('amount');
+                            }
                         }
                     }
                 }
@@ -372,6 +377,18 @@ class CustomerService extends Service
                 ->orderByDesc('receipt_date')
                 ->paginate(10);
 
+            // تعديل الرصيد الظاهر لفواتير الدين ليعكس المبلغ المتبقي الفعلي مع إرجاع الخصم والتسديد
+            $receipts->getCollection()->transform(function ($receipt) {
+                // إرجاع الخصم والتسديد للـ Frontend
+                $receipt->discount_amount = $receipt->discount ?? 0;
+                $receipt->paid_amount = $receipt->paid ?? 0;
+
+                if ($receipt->type === "دين" || $receipt->type === 2) {
+                    $receipt->total_price = $receipt->total_price - $receipt->discount_amount - $receipt->paid_amount;
+                }
+                return $receipt;
+            });
+
             return [
                 'status'  => 200,
                 'message' => 'تم استرجاع جميع فواتير العميل بنجاح',
@@ -444,9 +461,10 @@ public function getCustomerById($id)
         $firstPays = 0;
         $receiptTotalPrice = 0;
         $installmentsPaid = 0;
+        $debtReceiptsDiscountAndPaid = 0;
 
         $receipts = Receipt::where('customer_id', $customer->id)
-            ->where('type', 0)
+            ->whereIn('type', [0, 2]) // 0: اقساط, 2: دين
             ->with([
                 'receiptProducts',
                 'receiptProducts.installment',
@@ -455,11 +473,16 @@ public function getCustomerById($id)
             ->get();
 
         foreach ($receipts as $receipt) {
-            $receiptTotalPrice += $receipt->total_price;
-            foreach ($receipt->receiptProducts as $receiptProduct) {
-                if ($receiptProduct->installment) {
-                    $firstPays += $receiptProduct->installment->first_pay ?? 0;
-                    $installmentsPaid += $receiptProduct->installment->installmentPayments->sum('amount');
+            if ($receipt->type === "دين" || $receipt->type === 2) {
+                // يتم تجاهل جمع إجمالي فاتورة الدين هنا، لأن الرصيد سيتم حسابه
+                // من خلال جدول debts الذي أضفنا إليه سجل جديد.
+            } else {
+                $receiptTotalPrice += $receipt->total_price;
+                foreach ($receipt->receiptProducts as $receiptProduct) {
+                    if ($receiptProduct->installment) {
+                        $firstPays += $receiptProduct->installment->first_pay ?? 0;
+                        $installmentsPaid += $receiptProduct->installment->installmentPayments->sum('amount');
+                    }
                 }
             }
         }

@@ -83,6 +83,7 @@ Route::middleware('jwt')->group(function () {
         'update' => 'product.update',
         'destroy' => 'product.delete'
     ]);
+    Route::get('print-items', [ProductController::class, 'printItems']);
 
     //  Product Categories Management (Create/Update/Delete)
     Route::post('productCategory', [ProductCategoryController::class, 'store']);            //  Add category

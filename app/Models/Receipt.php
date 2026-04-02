@@ -26,8 +26,10 @@ class Receipt extends Model
     protected $fillable = [
         'customer_id',   // ID of the customer associated with the receipt
         'receipt_number', // Unique identifier for the receipt
-        'type',           // Type of receipt (installment or cash)
+        'type',           // Type of receipt (installment or cash or debt)
         'total_price',    // Total price of the receipt
+        'discount',       // Discount applied to the receipt
+        'paid',           // Amount paid at the time of receipt creation
         'receipt_date',   // Date the receipt was created
         'user_id',        // ID of the user who created the receipt
         'notes',          // Additional notes related to the receipt
@@ -46,6 +48,8 @@ class Receipt extends Model
         'customer_id'      => 'integer',  // Cast customer_id as an integer
         'receipt_number'   => 'integer',  // Cast receipt_number as an integer
         'total_price'      => 'integer',  // Cast total_price as an integer
+        'discount'         => 'integer',  // Cast discount as an integer
+        'paid'             => 'integer',  // Cast paid as an integer
         'notes'            => 'string',   // Cast notes as a string
         'receipt_date'     => 'datetime:Y-m-d', // Cast receipt_date as a datetime in 'Y-m-d' format
     ];
@@ -99,6 +103,7 @@ class Receipt extends Model
     const TYPE_MAP = [
         0 => 'اقساط',  // Installment payment type
         1 => 'نقدي',   // Cash payment type
+        2 => 'دين',    // Debt payment type
     ];
 
     /**

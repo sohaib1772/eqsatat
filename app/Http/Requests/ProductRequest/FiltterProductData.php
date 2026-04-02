@@ -25,6 +25,7 @@ class FiltterProductData extends FormRequest
     {
         return [
             'name' => 'nullable|string',
+            'customer_id' => 'nullable|integer|exists:customers,id',
         ];
     }
     /**

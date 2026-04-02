@@ -74,7 +74,7 @@ class Product extends Model
      */
     public function getSellingPriceForReceiptType($type)
     {
-        return ($type === 'اقساط') ? $this->installment_price : $this->selling_price;
+        return ($type === 'اقساط' || $type === 'دين') ? $this->installment_price : $this->selling_price;
     }
 
     /**

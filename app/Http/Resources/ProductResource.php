@@ -14,7 +14,7 @@ class ProductResource extends JsonResource
      */
     public function toArray(Request $request): array
     {
-        return [
+        $data = [
             'id' => $this->id,
             'selling_price' => $this->selling_price,
             'name' => $this->name,
@@ -30,5 +30,11 @@ class ProductResource extends JsonResource
             'created_at' => $this->created_at->format('Y-m-d '),
             "dollar_exchange"=>$this->dollar_exchange,
         ];
+
+        if (array_key_exists('last_selling_price', $this->getAttributes())) {
+            $data['last_selling_price'] = $this->last_selling_price;
+        }
+
+        return $data;
     }
 }

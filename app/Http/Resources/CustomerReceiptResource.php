@@ -21,6 +21,8 @@ class CustomerReceiptResource extends JsonResource
             'user_name' => $this->user->name ?? null,
             'notes' => $this->notes,
             'type' => $this->type,
+            'discount_amount' => $this->discount_amount ?? 0,
+            'paid_amount' => $this->paid_amount ?? 0,
             'receipt_date' => $this->receipt_date->format('Y-m-d'),
             'user_id' => $this->user_id,
             'customer_name' => $this->customer->name,

@@ -37,6 +37,7 @@ class InstallmentPaymentService extends Service
             $installmentPayment = $installment->installmentPayments()->create([
                 'payment_date' => $data['payment_date'],
                 'amount'       => $data['amount'],
+                'user_id'      => Auth::id(),
             ]);
 
             ActivitiesLog::create([

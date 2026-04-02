@@ -31,7 +31,9 @@ class UpdateReceiptData extends FormRequest
             'customer_id'     => 'nullable|exists:customers,id',
             'notes'           => 'nullable|string',
             'receipt_date'    => 'nullable|date|before_or_equal:now',
-
+            'type' => 'required|in:اقساط,نقدي,دين',
+            'discount_amount' => 'nullable|integer|min:0',
+            'paid_amount' => 'nullable|integer|min:0', 
             'products' => 'nullable|array',
             'products.*.product_id' => 'required|exists:products,id',
             'products.*.description' => 'nullable|string|max:255',
