@@ -22,6 +22,7 @@ use App\Http\Controllers\FinancialTransactionController;
 use App\Http\Controllers\ImportController;
 use App\Http\Controllers\ProductCategoryController;
 use App\Http\Controllers\InstallmentPaymentController;
+use App\Http\Controllers\AmountReceiptController;
 use PHPUnit\Framework\Attributes\BackupStaticProperties;
 
 /**
@@ -114,6 +115,9 @@ Route::middleware('jwt')->group(function () {
     //  Debt Management
     Route::apiResource('/debt', DebtController::class);                // Manage debts
     Route::apiResource('/debtPayments', DebtPaymentController::class); // Handle payments toward debts
+
+    //  Amount Receipt Management
+    Route::apiResource('/amountReceipt', AmountReceiptController::class);
 
     //  Customer-Specific Details
     Route::get('debts/customer/{id}', [CustomerController::class, 'getCustomerDebts']);  //  Fetch customer debts

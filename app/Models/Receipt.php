@@ -35,6 +35,8 @@ class Receipt extends Model
         'notes',          // Additional notes related to the receipt
     ];
 
+    protected $appends = ['first_pay'];
+
     /**
      * Casts for attributes.
      *
@@ -137,6 +139,17 @@ class Receipt extends Model
             // Set the integer value for type
             set: fn($value) => array_search($value, self::TYPE_MAP)  // Convert string back to its corresponding integer value
         );
+    }
+
+    public function getFirstPayAttribute()
+    {
+        if ($this->getRawOriginal('type') !== 0) { // If not installment
+            return 0;
+        }
+
+        return $this->receiptProducts->sum(function ($product) {
+            return $product->installment ? $product->installment->first_pay : 0;
+        });
     }
 
     /**
