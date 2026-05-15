@@ -188,4 +188,16 @@ class Customer extends Model
     {
         return $this->hasMany(NotificationLog::class);
     }
+
+    /**
+     * Defines the relationship between a customer and amount receipts.
+     *
+     * Each customer may have multiple amount receipts (general payments).
+     *
+     * @return \Illuminate\Database\Eloquent\Relations\HasMany
+     */
+    public function amountReceipts()
+    {
+        return $this->hasMany(AmountReceipt::class);
+    }
 }

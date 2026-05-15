@@ -56,41 +56,14 @@ class CustomerService extends Service
                 ->when(!empty($filteringData), fn($query) => $query->filterBy($filteringData))
                 ->with([
                     'receipts.receiptProducts.installment.installmentPayments',
-                    'debts.debtPayments'
+                    'debts.debtPayments',
+                    'amountReceipts'
                 ])
                 ->orderByDesc('created_at')
                 ->paginate(10);
 
             $customers->getCollection()->transform(function ($customer) {
-                $firstPays = 0;
-                $receiptTotalPrice = 0;
-                $installmentsPaid = 0;
-                $debtReceiptsDiscountAndPaid = 0;
-
-                // حساب الفواتير + الأقساط + الدين
-                foreach ($customer->receipts->whereIn('type', ["اقساط", "دين", 0, 2]) as $receipt) {
-                    if ($receipt->type === "دين" || $receipt->type === 2) {
-                        // يتم تجاهل جمع إجمالي فاتورة الدين هنا، لأن الرصيد سيتم حسابه
-                        // من خلال جدول debts الذي أضفنا إليه سجل جديد.
-                    } else {
-                        $receiptTotalPrice += $receipt->total_price;
-                        foreach ($receipt->receiptProducts as $receiptProduct) {
-                            if ($receiptProduct->installment) {
-                                $firstPays += $receiptProduct->installment->first_pay ?? 0;
-                                $installmentsPaid += $receiptProduct->installment->installmentPayments->sum('amount');
-                            }
-                        }
-                    }
-                }
-
-                // حساب الديون + مدفوعاتها
-                $remainingDebt = $customer->debts->sum('remaining_debt');
-                $debtInstallmentsPaid = $customer->debts->sum(fn($debt) => $debt->debtPayments->sum('amount'));
-
-                $totalRemaining = ($receiptTotalPrice - $firstPays - $installmentsPaid)
-                                + ($remainingDebt - $debtInstallmentsPaid);
-
-                $customer->total_remaining = $totalRemaining;
+                $customer->total_remaining = $this->calculateTotalRemaining($customer);
 
                 // إيجاد آخر دفعة (من الأقساط أو الديون)
                 $latestInstallmentPaymentDate = $customer->receipts
@@ -454,47 +427,13 @@ public function getCustomerById($id)
 
         $customer = Customer::with([
             'receipts.receiptProducts.installment.installmentPayments',
-            'debts'
+            'debts.debtPayments',
+            'amountReceipts'
         ])
         ->findOrFail($id);
 
-        $firstPays = 0;
-        $receiptTotalPrice = 0;
-        $installmentsPaid = 0;
-        $debtReceiptsDiscountAndPaid = 0;
+        $customer->total_remaining = $this->calculateTotalRemaining($customer);
 
-        $receipts = Receipt::where('customer_id', $customer->id)
-            ->whereIn('type', [0, 2]) // 0: اقساط, 2: دين
-            ->with([
-                'receiptProducts',
-                'receiptProducts.installment',
-                'receiptProducts.installment.installmentPayments'
-            ])
-            ->get();
-
-        foreach ($receipts as $receipt) {
-            if ($receipt->type === "دين" || $receipt->type === 2) {
-                // يتم تجاهل جمع إجمالي فاتورة الدين هنا، لأن الرصيد سيتم حسابه
-                // من خلال جدول debts الذي أضفنا إليه سجل جديد.
-            } else {
-                $receiptTotalPrice += $receipt->total_price;
-                foreach ($receipt->receiptProducts as $receiptProduct) {
-                    if ($receiptProduct->installment) {
-                        $firstPays += $receiptProduct->installment->first_pay ?? 0;
-                        $installmentsPaid += $receiptProduct->installment->installmentPayments->sum('amount');
-                    }
-                }
-            }
-        }
-
-        $remainingDebt = $customer->debts->sum('remaining_debt');
-        $debtInstallmentsPaid = $customer->debts->sum(fn($debt) => $debt->debtPayments->sum('amount'));
-
-        $totalRemaining = ($receiptTotalPrice - $firstPays - $installmentsPaid) + ($remainingDebt - $debtInstallmentsPaid);
-
-
-
-        $customer->total_remaining = $totalRemaining;
 
 
         return $this->successResponse('تم جلب بيانات العميل بنجاح.', 200, $customer);
@@ -508,4 +447,39 @@ public function getCustomerById($id)
     }
 }
 
+    /**
+     * Calculate the total remaining debt for a customer.
+     * Includes installment receipts, manual debts, and general amount receipts.
+     *
+     * @param Customer $customer
+     * @return int
+     */
+    private function calculateTotalRemaining(Customer $customer): int
+    {
+        $firstPays = 0;
+        $receiptTotalPrice = 0;
+        $installmentsPaid = 0;
+
+        // 1. Calculate debt from installment receipts (Type 0: اقساط)
+        foreach ($customer->receipts->whereIn('type', ["اقساط", 0]) as $receipt) {
+            // Include gross total minus receipt-level discounts and paid amounts
+            $receiptTotalPrice += ($receipt->total_price - ($receipt->discount ?? 0) - ($receipt->paid ?? 0));
+
+            foreach ($receipt->receiptProducts as $receiptProduct) {
+                if ($receiptProduct->installment) {
+                    $firstPays += $receiptProduct->installment->first_pay ?? 0;
+                    $installmentsPaid += $receiptProduct->installment->installmentPayments->sum('amount');
+                }
+            }
+        }
+
+        // 2. Calculate debt from manual/linked debts table
+        $remainingDebt = $customer->debts->sum('remaining_debt');
+        $debtPayments = $customer->debts->sum(fn($debt) => $debt->debtPayments->sum('amount'));
+
+        // Total Remaining = (Net Receipt Debt - Initial Pays - Installment Payments)
+        //                  + (Normal Debt - Debt Payments)
+        return ($receiptTotalPrice - $firstPays - $installmentsPaid)
+               + ($remainingDebt - $debtPayments);
+    }
 }
