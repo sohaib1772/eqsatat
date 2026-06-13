@@ -300,7 +300,12 @@ class ProductService extends Service
             }
 
             $products = $query->get()->map(function ($product) use ($priceType) {
-                $data = ['name' => $product->name];
+                $data = [
+                    'name' => $product->name,
+                    'quantity' => $product->quantity,
+                    'dolar_buying_price' => $product->dolar_buying_price,
+                    'dollar_exchange' => $product->dollar_exchange,
+                ];
                 
                 if ($priceType === 'both') {
                     $data['selling_price'] = $product->selling_price;
