@@ -73,6 +73,34 @@ class CustomerService extends Service
                 }
             }
 
+            // Clean null and empty values for cache checking
+            $searchName = $filteringData['name'] ?? '';
+            $searchStatus = $filteringData['status'] ?? '';
+
+            // --- Deduplication Logic for App Race Condition ---
+            $cacheKey = "last_req_{$userId}";
+            $lastReq = Cache::get($cacheKey);
+            $now = microtime(true);
+
+            if ($lastReq && $lastReq['page'] === $page && $lastReq['name'] === $searchName && $lastReq['status'] === $searchStatus && ($now - $lastReq['time']) < 1.5) {
+                // Return an empty LengthAwarePaginator to prevent UI duplicates caused by concurrent requests
+                $emptyPaginator = new \Illuminate\Pagination\LengthAwarePaginator(
+                    new \Illuminate\Database\Eloquent\Collection(),
+                    0,
+                    10,
+                    $page
+                );
+                return $this->successResponse('تم جلب بيانات العملاء بنجاح.', 200, $emptyPaginator);
+            }
+
+            Cache::put($cacheKey, [
+                'page' => $page,
+                'name' => $searchName,
+                'status' => $searchStatus,
+                'time' => $now
+            ], 10);
+            // --------------------------------------------------
+
             // Remove null and empty filters to prevent querying empty keys
             $filteringData = array_filter($filteringData, function($value) {
                 return !is_null($value) && $value !== '';
