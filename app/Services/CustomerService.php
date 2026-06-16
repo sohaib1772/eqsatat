@@ -39,73 +39,19 @@ class CustomerService extends Service
 
 
 
-    public function getAllCustomers($filteringData)
-    {
-        try {
-            $page = (int)request('page', 1);
-            $userId = Auth::id();
+   public function getAllCustomers($filteringData)
+{
+    try {
+        // $page = request('page', 1);
+        // $cacheKey = 'customers_' . $page . (empty($filteringData) ? '' : md5(json_encode($filteringData)));
+        // $cacheKeys = Cache::get('all_customers_keys', []);
 
-            if ($page === 1) {
-                if (!empty($filteringData['name'])) {
-                    Cache::put("user_search_name_{$userId}", $filteringData['name'], now()->addMinutes(15));
-                } else {
-                    Cache::forget("user_search_name_{$userId}");
-                }
+        // if (!in_array($cacheKey, $cacheKeys)) {
+        //     $cacheKeys[] = $cacheKey;
+        //     Cache::put('all_customers_keys', $cacheKeys, now()->addHours(2));
+        // }
 
-                if (!empty($filteringData['status'])) {
-                    Cache::put("user_search_status_{$userId}", $filteringData['status'], now()->addMinutes(15));
-                } else {
-                    Cache::forget("user_search_status_{$userId}");
-                }
-            } else {
-                if (empty($filteringData['name'])) {
-                    $cachedName = Cache::get("user_search_name_{$userId}");
-                    if ($cachedName) {
-                        $filteringData['name'] = $cachedName;
-                    }
-                }
-
-                if (empty($filteringData['status'])) {
-                    $cachedStatus = Cache::get("user_search_status_{$userId}");
-                    if ($cachedStatus) {
-                        $filteringData['status'] = $cachedStatus;
-                    }
-                }
-            }
-
-            // Clean null and empty values for cache checking
-            $searchName = $filteringData['name'] ?? '';
-            $searchStatus = $filteringData['status'] ?? '';
-
-            // --- Deduplication Logic for App Race Condition ---
-            $cacheKey = "last_req_{$userId}";
-            $lastReq = Cache::get($cacheKey);
-            $now = microtime(true);
-
-            if ($lastReq && $lastReq['page'] === $page && $lastReq['name'] === $searchName && $lastReq['status'] === $searchStatus && ($now - $lastReq['time']) < 1.5) {
-                // Return an empty LengthAwarePaginator to prevent UI duplicates caused by concurrent requests
-                $emptyPaginator = new \Illuminate\Pagination\LengthAwarePaginator(
-                    new \Illuminate\Database\Eloquent\Collection(),
-                    0,
-                    10,
-                    $page
-                );
-                return $this->successResponse('تم جلب بيانات العملاء بنجاح.', 200, $emptyPaginator);
-            }
-
-            Cache::put($cacheKey, [
-                'page' => $page,
-                'name' => $searchName,
-                'status' => $searchStatus,
-                'time' => $now
-            ], 10);
-            // --------------------------------------------------
-
-            // Remove null and empty filters to prevent querying empty keys
-            $filteringData = array_filter($filteringData, function($value) {
-                return !is_null($value) && $value !== '';
-            });
-
+        // return Cache::remember($cacheKey, now()->addMinutes(120), function () use ($filteringData) {
             $customers = Customer::query()
                 ->when(!empty($filteringData), fn($query) => $query->filterBy($filteringData))
                 ->with([
@@ -114,7 +60,7 @@ class CustomerService extends Service
                     'amountReceipts'
                 ])
                 ->orderByDesc('created_at')
-                ->paginate(10);
+                ->paginate(20);
 
             $customers->getCollection()->transform(function ($customer) {
                 $customer->total_remaining = $this->calculateTotalRemaining($customer);
@@ -290,9 +236,7 @@ class CustomerService extends Service
     public function createCustomer(array $data): array
     {
         try {
-            if (isset($data['name'])) {
-                $data['name'] = preg_replace('/\s*\((قديم|جديد).*?\)$/u', '', $data['name']);
-            }
+
 
             // Create the customer record
             $customer = Customer::create($data);
@@ -323,9 +267,6 @@ class CustomerService extends Service
     public function updateCustomer(array $data, Customer $customer): array
     {
         try {
-            if (isset($data['name'])) {
-                $data['name'] = preg_replace('/\s*\((قديم|جديد).*?\)$/u', '', $data['name']);
-            }
             // Update the customer record
             $customer->update($data);
             $userId = Auth::id();
