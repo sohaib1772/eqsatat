@@ -39,19 +39,45 @@ class CustomerService extends Service
 
 
 
-   public function getAllCustomers($filteringData)
-{
-    try {
-        // $page = request('page', 1);
-        // $cacheKey = 'customers_' . $page . (empty($filteringData) ? '' : md5(json_encode($filteringData)));
-        // $cacheKeys = Cache::get('all_customers_keys', []);
+    public function getAllCustomers($filteringData)
+    {
+        try {
+            $page = (int)request('page', 1);
+            $userId = Auth::id();
 
-        // if (!in_array($cacheKey, $cacheKeys)) {
-        //     $cacheKeys[] = $cacheKey;
-        //     Cache::put('all_customers_keys', $cacheKeys, now()->addHours(2));
-        // }
+            if ($page === 1) {
+                if (!empty($filteringData['name'])) {
+                    Cache::put("user_search_name_{$userId}", $filteringData['name'], now()->addMinutes(15));
+                } else {
+                    Cache::forget("user_search_name_{$userId}");
+                }
 
-        // return Cache::remember($cacheKey, now()->addMinutes(120), function () use ($filteringData) {
+                if (!empty($filteringData['status'])) {
+                    Cache::put("user_search_status_{$userId}", $filteringData['status'], now()->addMinutes(15));
+                } else {
+                    Cache::forget("user_search_status_{$userId}");
+                }
+            } else {
+                if (empty($filteringData['name'])) {
+                    $cachedName = Cache::get("user_search_name_{$userId}");
+                    if ($cachedName) {
+                        $filteringData['name'] = $cachedName;
+                    }
+                }
+
+                if (empty($filteringData['status'])) {
+                    $cachedStatus = Cache::get("user_search_status_{$userId}");
+                    if ($cachedStatus) {
+                        $filteringData['status'] = $cachedStatus;
+                    }
+                }
+            }
+
+            // Remove null and empty filters to prevent querying empty keys
+            $filteringData = array_filter($filteringData, function($value) {
+                return !is_null($value) && $value !== '';
+            });
+
             $customers = Customer::query()
                 ->when(!empty($filteringData), fn($query) => $query->filterBy($filteringData))
                 ->with([
