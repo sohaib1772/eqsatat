@@ -167,10 +167,13 @@ class Customer extends Model
     {
         if (isset($filteringData['name'])) {
             $searchTerm = strtolower($filteringData['name']);
-            $query->whereRaw('LOWER(name) LIKE ?', ["%{$searchTerm}%"]);
+            $query->where(function ($q) use ($searchTerm) {
+                $q->whereRaw('LOWER(name) LIKE ?', ["%{$searchTerm}%"])
+                  ->orWhere('phone', 'LIKE', "%{$searchTerm}%");
+            });
         }
         if (isset($filteringData['phone'])) {
-            $query->where('phone', $filteringData['phone']);
+            $query->where('phone', 'LIKE', "%{$filteringData['phone']}%");
         }
 
         if (isset($filteringData['status'])) {
