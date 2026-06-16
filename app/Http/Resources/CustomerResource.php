@@ -13,11 +13,24 @@ class CustomerResource extends JsonResource
      * @return array<string, mixed>
      */
     public function toArray(Request $request): array
-{
-    return [
-        'id' => $this->id,
-        'name' => $this->name,
-        'phone' => $this->phone,
+    {
+        $name = $this->name;
+        $isDuplicate = \Illuminate\Support\Facades\Cache::remember('cust_dup_' . md5($this->name), 60, function() {
+            return \App\Models\Customer::where('name', $this->name)->count() > 1;
+        });
+
+        if ($isDuplicate) {
+            $suffix = $this->status;
+            if ($this->phone) {
+                $suffix .= ' - ' . $this->phone;
+            }
+            $name .= ' (' . $suffix . ')';
+        }
+
+        return [
+            'id' => $this->id,
+            'name' => $name,
+            'phone' => $this->phone,
         'sponsor_name' => $this->sponsor_name,
         'Record_id' => $this->Record_id,
         'Page_id' => $this->Page_id,

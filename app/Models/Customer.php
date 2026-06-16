@@ -157,6 +157,32 @@ class Customer extends Model
     }
 
     /**
+     * Normalize Arabic characters to simplify search.
+     *
+     * @param string $str
+     * @return string
+     */
+    public function normalizeArabic($str)
+    {
+        $str = strtolower($str);
+        $str = str_replace(['أ', 'إ', 'آ'], 'ا', $str);
+        $str = str_replace('ة', 'ه', $str);
+        $str = str_replace('ى', 'ي', $str);
+        return $str;
+    }
+
+    /**
+     * Get the SQL expression to normalize Arabic characters in MySQL.
+     *
+     * @param string $column
+     * @return string
+     */
+    public function getNormalizedNameSql($column = 'name')
+    {
+        return "REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(LOWER({$column}), 'أ', 'ا'), 'إ', 'ا'), 'آ', 'ا'), 'ة', 'ه'), 'ى', 'ي')";
+    }
+
+    /**
      * Scope to filter customers by optional criteria.
      *
      * @param \Illuminate\Database\Eloquent\Builder $query
@@ -166,8 +192,15 @@ class Customer extends Model
     public function scopeFilterBy($query, array $filteringData)
     {
         if (isset($filteringData['name'])) {
-            $searchTerm = strtolower($filteringData['name']);
-            $query->whereRaw('LOWER(name) LIKE ?', ["%{$searchTerm}%"]);
+            $searchTerm = $filteringData['name'];
+            $normalizedSearch = $this->normalizeArabic($searchTerm);
+            $normalizedNameSql = $this->getNormalizedNameSql('name');
+
+            $query->where(function($q) use ($searchTerm, $normalizedSearch, $normalizedNameSql) {
+                $q->whereRaw("{$normalizedNameSql} LIKE ?", ["%{$normalizedSearch}%"])
+                  ->orWhere('phone', 'LIKE', "%{$searchTerm}%")
+                  ->orWhere('sponsor_phone', 'LIKE', "%{$searchTerm}%");
+            });
         }
         if (isset($filteringData['phone'])) {
             $query->where('phone', $filteringData['phone']);

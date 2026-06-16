@@ -236,7 +236,9 @@ class CustomerService extends Service
     public function createCustomer(array $data): array
     {
         try {
-
+            if (isset($data['name'])) {
+                $data['name'] = preg_replace('/\s*\((قديم|جديد).*?\)$/u', '', $data['name']);
+            }
 
             // Create the customer record
             $customer = Customer::create($data);
@@ -267,6 +269,9 @@ class CustomerService extends Service
     public function updateCustomer(array $data, Customer $customer): array
     {
         try {
+            if (isset($data['name'])) {
+                $data['name'] = preg_replace('/\s*\((قديم|جديد).*?\)$/u', '', $data['name']);
+            }
             // Update the customer record
             $customer->update($data);
             $userId = Auth::id();
