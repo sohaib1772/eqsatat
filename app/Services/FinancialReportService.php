@@ -98,15 +98,15 @@ class FinancialReportService extends Service
                     $q->whereHas('receipt', fn($r) => $r->whereBetween('receipt_date', [$startDate, $endDate])))
                 ->sum(DB::raw('buying_price * quantity'));
 
-            $totalSalesValueForProfit = Receipt::when($startDate && $endDate, fn($q) => $q->whereBetween('receipt_date', [$startDate, $endDate]))
-                ->sum('total_price');
+            $totalSalesValueForProfit = $totalCashSalesRevenue + $totalInstallmentSalesValueInPeriod;
 
             $firstpay = Installment::when($startDate && $endDate, fn($q) =>
                     $q->whereHas('receiptProduct.receipt', fn($r) => $r->whereBetween('receipt_date', [$startDate, $endDate])))
                 ->sum('first_pay');
 
             $adjustedCOGS = $totalInstallmentSalesValueInPeriod - $firstpay - $collectedInstallmentPayments;
-            $operatingNetProfit = $totalSalesValueForProfit - $cogsForPeriodSales - $totalExpenses;
+            $grossProfitFromSalesInPeriod = $totalSalesValueForProfit - $cogsForPeriodSales;
+            $operatingNetProfit = $grossProfitFromSalesInPeriod - $totalExpenses;
 
             // 1. Calculate Exchange Rate
             $dollarRate = (float) (\App\Models\Product::latest('id')->value('dollar_exchange') ?? 1530);
