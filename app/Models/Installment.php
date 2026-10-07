@@ -41,8 +41,8 @@ class Installment extends Model
     protected $casts = [
         'receipt_product_id' => 'integer',  // Cast the receipt_product_id as integer
         'pay_cont' => 'integer',            // Cast the pay_cont as integer
-        'first_pay' => 'integer',           // Cast the first_pay as integer
-        'installment' => 'integer',         // Cast the installment as integer
+        'first_pay' => 'float',           // Cast the first_pay as float
+        'installment' => 'float',         // Cast the installment as float
     ];
 
     /**

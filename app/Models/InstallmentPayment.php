@@ -52,7 +52,7 @@ class InstallmentPayment extends Model
         'installment_id' => 'integer',
         'user_id' => 'integer',
         'payment_date' => 'date',
-        'amount' => 'integer',
+        'amount' => 'float',
     ];
 
     /**

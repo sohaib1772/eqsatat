@@ -49,9 +49,9 @@ class Receipt extends Model
     protected $casts = [
         'customer_id'      => 'integer',  // Cast customer_id as an integer
         'receipt_number'   => 'integer',  // Cast receipt_number as an integer
-        'total_price'      => 'integer',  // Cast total_price as an integer
-        'discount'         => 'integer',  // Cast discount as an integer
-        'paid'             => 'integer',  // Cast paid as an integer
+        'total_price'      => 'float',  // Cast total_price as float
+        'discount'         => 'float',  // Cast discount as float
+        'paid'             => 'float',  // Cast paid as float
         'notes'            => 'string',   // Cast notes as a string
         'receipt_date'     => 'datetime:Y-m-d', // Cast receipt_date as a datetime in 'Y-m-d' format
     ];

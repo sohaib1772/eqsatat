@@ -34,7 +34,7 @@ class DebtPayment extends Model
      * @var array<string, string>
      */
     protected $casts = [
-        'amount'           => 'integer', // Convert the amount to an integer
+        'amount'           => 'float', // Convert the amount to float
         'debt_id'          => 'integer', // Convert the debt ID to an integer
         'user_id'          => 'integer', // Convert the user ID to an integer
         'payment_date' => 'date',    // Convert the installment date to a date type

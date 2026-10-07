@@ -17,16 +17,16 @@ class StoreReceiptData extends FormRequest
             'customer_id' => 'required|exists:customers,id',
             'receipt_number' => 'required|integer|unique:receipts,receipt_number',
             'type' => 'required|in:اقساط,نقدي,دين',
-            'total_price' => 'required|integer',
-            'discount_amount' => 'nullable|integer|min:0',
-            'paid_amount' => 'nullable|integer|min:0',
+            'total_price' => 'required|numeric',
+            'discount_amount' => 'nullable|numeric|min:0',
+            'paid_amount' => 'nullable|numeric|min:0',
             'notes' => 'nullable|string',
             'receipt_date' => 'nullable|date|before_or_equal:now',
 
             'products' => 'required|array',
             'products.*.product_id' => 'required|exists:products,id',
             'products.*.description' => 'nullable|string|max:255',
-            'products.*.selling_price' => 'nullable|integer',
+            'products.*.selling_price' => 'nullable|numeric',
             'products.*.quantity' => [
                 'required',
                 'integer',
@@ -44,12 +44,12 @@ class StoreReceiptData extends FormRequest
 
 
             'products.*.pay_cont' => 'required_if:type,اقساط|integer|min:0',
-            'products.*.installment' => 'required_if:type,اقساط|integer|min:0',
+            'products.*.installment' => 'required_if:type,اقساط|numeric|min:0',
             'products.*.installment_type' => 'required_if:type,اقساط|in:يومي,شهري,اسبوعي',
 
             'products.*.first_pay' => [
                 'required_if:type,اقساط',
-                'integer',
+                'numeric',
                 'min:0',
                 function ($attribute, $value, $fail) {
                     // فقط إذا كان النوع "اقساط"

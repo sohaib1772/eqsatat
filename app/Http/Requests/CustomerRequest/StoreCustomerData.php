@@ -32,6 +32,7 @@ class StoreCustomerData extends FormRequest
             'Record_id' => 'nullable|string',
             'Page_id' => 'nullable|string',
             'status' => 'nullable|in:جديد,قديم',
+            'type' => 'nullable|in:دولار,دينار,0,1',
         ];
     }
 

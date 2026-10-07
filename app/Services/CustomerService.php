@@ -452,13 +452,13 @@ public function getCustomerById($id)
      * Includes installment receipts, manual debts, and general amount receipts.
      *
      * @param Customer $customer
-     * @return int
+     * @return float
      */
-    private function calculateTotalRemaining(Customer $customer): int
+    private function calculateTotalRemaining(Customer $customer): float
     {
-        $firstPays = 0;
-        $receiptTotalPrice = 0;
-        $installmentsPaid = 0;
+        $firstPays = 0.0;
+        $receiptTotalPrice = 0.0;
+        $installmentsPaid = 0.0;
 
         // 1. Calculate debt from installment receipts (Type 0: اقساط)
         foreach ($customer->receipts->whereIn('type', ["اقساط", 0]) as $receipt) {
@@ -467,19 +467,169 @@ public function getCustomerById($id)
 
             foreach ($receipt->receiptProducts as $receiptProduct) {
                 if ($receiptProduct->installment) {
-                    $firstPays += $receiptProduct->installment->first_pay ?? 0;
-                    $installmentsPaid += $receiptProduct->installment->installmentPayments->sum('amount');
+                    $firstPays += (float) ($receiptProduct->installment->first_pay ?? 0);
+                    $installmentsPaid += (float) $receiptProduct->installment->installmentPayments->sum('amount');
                 }
             }
         }
 
         // 2. Calculate debt from manual/linked debts table
-        $remainingDebt = $customer->debts->sum('remaining_debt');
-        $debtPayments = $customer->debts->sum(fn($debt) => $debt->debtPayments->sum('amount'));
+        $remainingDebt = (float) $customer->debts->sum('remaining_debt');
+        $debtPayments = (float) $customer->debts->sum(fn($debt) => $debt->debtPayments->sum('amount'));
 
         // Total Remaining = (Net Receipt Debt - Initial Pays - Installment Payments)
         //                  + (Normal Debt - Debt Payments)
-        return ($receiptTotalPrice - $firstPays - $installmentsPaid)
-               + ($remainingDebt - $debtPayments);
+        return round(($receiptTotalPrice - $firstPays - $installmentsPaid)
+               + ($remainingDebt - $debtPayments), 2);
+    }
+
+    /**
+     * Convert a customer's currency and convert all historical records
+     * (receipts, receipt products, installments, installment payments, debts, debt payments, amount receipts)
+     * at the user-specified exchange rate.
+     *
+     * @param int $id Customer ID
+     * @param array $data ['exchange_rate' => float, 'target_currency' => ?string]
+     * @return array Response array
+     */
+    public function convertCustomerCurrency(int $id, array $data): array
+    {
+        \Illuminate\Support\Facades\DB::beginTransaction();
+        try {
+            $customer = Customer::findOrFail($id);
+
+            $rawRate = (float) ($data['exchange_rate'] ?? 0);
+            if ($rawRate <= 0) {
+                return $this->errorResponse('سعر الصرف المدخل غير صحيح، يجب أن يكون أكبر من صفر.', 422);
+            }
+
+            // Support rates entered as either 1530 or 153000 (per 100$)
+            $effectiveRate = ($rawRate >= 10000) ? ($rawRate / 100.0) : $rawRate;
+
+            $currentType = $customer->type; // 'دينار' or 'دولار'
+            $targetType = isset($data['target_currency']) && in_array($data['target_currency'], ['دولار', 'دينار'])
+                ? $data['target_currency']
+                : (($currentType === 'دولار') ? 'دينار' : 'دولار');
+
+            if ($currentType === $targetType) {
+                return $this->errorResponse("الزبون يتعامل بالفعل بعملة {$targetType}.", 422);
+            }
+
+            $isToDollar = ($targetType === 'دولار');
+
+            // Conversion helper function
+            $convert = function ($val) use ($isToDollar, $effectiveRate) {
+                if ($val === null) return null;
+                $num = (float) $val;
+                if ($num == 0) return 0;
+                return $isToDollar
+                    ? round($num / $effectiveRate, 2)
+                    : round($num * $effectiveRate, 2);
+            };
+
+            // 1. Convert Receipts & their Products & Installments & Payments
+            $receipts = Receipt::where('customer_id', $customer->id)
+                ->with(['receiptProducts.installment.installmentPayments'])
+                ->get();
+
+            foreach ($receipts as $receipt) {
+                $receipt->total_price = $convert($receipt->total_price);
+                $receipt->discount = $convert($receipt->discount);
+                $receipt->paid = $convert($receipt->paid);
+                $receipt->save();
+
+                foreach ($receipt->receiptProducts as $rp) {
+                    $rp->selling_price = $convert($rp->selling_price);
+                    $rp->buying_price = $convert($rp->buying_price);
+                    $rp->save();
+
+                    if ($rp->installment) {
+                        $inst = $rp->installment;
+                        $inst->first_pay = $convert($inst->first_pay);
+                        $inst->installment = $convert($inst->installment);
+                        $inst->save();
+
+                        foreach ($inst->installmentPayments as $ip) {
+                            $ip->amount = $convert($ip->amount);
+                            $ip->save();
+                        }
+                    }
+                }
+            }
+
+            // 2. Convert Debts & Debt Payments
+            $debts = Debt::where('customer_id', $customer->id)
+                ->with(['debtPayments'])
+                ->get();
+
+            foreach ($debts as $debt) {
+                $debt->remaining_debt = $convert($debt->remaining_debt);
+                $debt->payment_amount = $convert($debt->payment_amount);
+                $debt->save();
+
+                foreach ($debt->debtPayments as $dp) {
+                    $dp->amount = $convert($dp->amount);
+                    $dp->save();
+                }
+            }
+
+            // 3. Convert Amount Receipts
+            $amountReceipts = \App\Models\AmountReceipt::where('customer_id', $customer->id)->get();
+            foreach ($amountReceipts as $ar) {
+                $ar->amount = $convert($ar->amount);
+                $ar->remaining_amount = $convert($ar->remaining_amount);
+                $ar->save();
+            }
+
+            // 4. Update Customer Currency Type
+            $customer->type = $targetType;
+            $customer->save();
+
+            // 5. Activity Log
+            ActivitiesLog::create([
+                'user_id'     => Auth::id() ?? 1,
+                'description' => "تم تحويل عملة الزبون ({$customer->name}) من ({$currentType}) إلى ({$targetType}) بسعر صرف ({$rawRate})",
+                'type_id'     => $customer->id,
+                'type_type'   => Customer::class,
+            ]);
+
+            \Illuminate\Support\Facades\DB::commit();
+
+            // Clear caches
+            $this->clearAllCaches();
+
+            // Return refreshed customer data
+            $customer->load([
+                'receipts.receiptProducts.installment.installmentPayments',
+                'debts.debtPayments',
+                'amountReceipts'
+            ]);
+            $customer->total_remaining = $this->calculateTotalRemaining($customer);
+
+            return $this->successResponse(
+                "تم تحويل عملة الزبون إلى {$targetType} بنجاح وتحويل جميع السجلات السابقة بسعر صرف {$rawRate}.",
+                200,
+                $customer
+            );
+        } catch (Exception $e) {
+            \Illuminate\Support\Facades\DB::rollBack();
+            Log::error('Error in convertCustomerCurrency: ' . $e->getMessage());
+            return $this->errorResponse('حدث خطأ أثناء تحويل عملة الزبون: ' . $e->getMessage(), 500);
+        }
+    }
+
+    private function clearAllCaches(): void
+    {
+        $cacheKeys = Cache::get('all_customers_keys', []);
+        foreach ($cacheKeys as $key) {
+            Cache::forget($key);
+        }
+        Cache::forget('all_customers_keys');
+
+        $cacheKeys = Cache::get('all_receipts_keys', []);
+        foreach ($cacheKeys as $key) {
+            Cache::forget($key);
+        }
+        Cache::forget('all_receipts_keys');
     }
 }

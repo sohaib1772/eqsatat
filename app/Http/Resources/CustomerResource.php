@@ -23,6 +23,7 @@ class CustomerResource extends JsonResource
         'Page_id' => $this->Page_id,
         'notes' => $this->notes,
         'status' => $this->status,
+        'type' => $this->type ?? 'دينار',
         'created_at' => $this->created_at->format('Y-m-d'),
         'sponsor_phone' => $this->sponsor_phone,
 
@@ -31,8 +32,8 @@ class CustomerResource extends JsonResource
     ? \Carbon\Carbon::parse($this->lastest_payment_date)->format('Y-m-d')
     : null,
 
-        'total_remaining' => $this->total_remaining,
-        'days_since_last_payment' => (integer)$this->days_since_last_payment, // << الجديد
+        'total_remaining' => round((float)$this->total_remaining, 2),
+        'days_since_last_payment' => (integer)$this->days_since_last_payment,
     ];
 }
 

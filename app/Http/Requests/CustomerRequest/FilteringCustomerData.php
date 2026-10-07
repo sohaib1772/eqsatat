@@ -27,6 +27,7 @@ class FilteringCustomerData extends FormRequest
             'name' => 'nullable|string|max:255',
             'phone' => 'nullable|string|max:20',
             'status' => 'nullable|in:جديد,قديم',
+            'type' => 'nullable|in:دولار,دينار,0,1',
         ];
     }
     /**

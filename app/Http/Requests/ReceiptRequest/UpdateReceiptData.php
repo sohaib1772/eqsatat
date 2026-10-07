@@ -32,12 +32,12 @@ class UpdateReceiptData extends FormRequest
             'notes'           => 'nullable|string',
             'receipt_date'    => 'nullable|date|before_or_equal:now',
             'type' => 'required|in:اقساط,نقدي,دين',
-            'discount_amount' => 'nullable|integer|min:0',
-            'paid_amount' => 'nullable|integer|min:0', 
+            'discount_amount' => 'nullable|numeric|min:0',
+            'paid_amount' => 'nullable|numeric|min:0', 
             'products' => 'nullable|array',
             'products.*.product_id' => 'required|exists:products,id',
             'products.*.description' => 'nullable|string|max:255',
-            'products.*.selling_price' => 'nullable|integer:',
+            'products.*.selling_price' => 'nullable|numeric',
             'products.*.quantity' => [
                 'required',
                 'integer',
@@ -54,12 +54,12 @@ class UpdateReceiptData extends FormRequest
             ],
 
             'products.*.pay_cont' => 'required_if:type,اقساط|nullable|integer|min:0',
-            'products.*.installment' => 'required_if:type,اقساط|nullable|integer|min:0',
+            'products.*.installment' => 'required_if:type,اقساط|nullable|numeric|min:0',
             'products.*.installment_type' => 'required_if:type,اقساط|nullable|in:يومي,شهري,اسبوعي',
             'products.*.first_pay' => [
                 'required_if:type,اقساط',
                 'nullable',
-                'integer',
+                'numeric',
                 'min:0',
                 function ($attribute, $value, $fail) {
                     $index = explode('.', $attribute)[1];

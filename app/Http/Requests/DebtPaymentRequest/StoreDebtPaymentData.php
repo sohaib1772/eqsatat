@@ -25,7 +25,7 @@ class StoreDebtPaymentData extends FormRequest
     public function rules(): array
     {
         return [
-            'amount' => ['required', 'integer', new DebtPaymentRule($this->debt_id)],
+            'amount' => ['required', 'numeric', new DebtPaymentRule($this->debt_id)],
             'debt_id'=>'required|exists:debts,id',
             'payment_date'=>'required|date',
         ];

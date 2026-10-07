@@ -32,8 +32,8 @@ class ReceiptProduct extends Model
         'receipt_id' => 'integer',
         'product_id' => 'integer',
         'quantity' => 'integer',
-        'selling_price' => 'integer',
-        'buying_price' => 'integer',
+        'selling_price' => 'float',
+        'buying_price' => 'float',
         'description' => 'string',
     ];
 
@@ -80,9 +80,9 @@ class ReceiptProduct extends Model
     /**
  * Get the total price for this receipt product.
  *
- * @return int
+ * @return float
  */
-    public function getTotalPriceAttribute(): int
+    public function getTotalPriceAttribute(): float
     {
         return $this->selling_price * $this->quantity;
     }

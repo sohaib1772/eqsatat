@@ -24,9 +24,9 @@ class UpdateAmountReceiptData extends FormRequest
         return [
             'receipt_number'   => 'sometimes|required|unique:amount_receipts,receipt_number,' . $this->route('amountReceipt')->id,
             'customer_id'      => 'sometimes|required|exists:customers,id',
-            'amount'           => 'sometimes|required|integer|min:1',
+            'amount'           => 'sometimes|required|numeric|min:0.01',
             'receipt_date'     => 'sometimes|required|date|before_or_equal:now',
-            'remaining_amount' => 'sometimes|required|integer',
+            'remaining_amount' => 'sometimes|required|numeric',
             'notes'            => 'nullable|string',
         ];
     }

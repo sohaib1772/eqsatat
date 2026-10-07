@@ -24,15 +24,49 @@ class FinancialReportService extends Service
             $startDate = $data['start_date'] ?? null;
             $endDate   = $data['end_date'] ?? null;
 
-            // Collected installment payments
-            $collectedInstallmentPayments = InstallmentPayment::when($startDate && $endDate, function ($q) use ($startDate, $endDate) {
-                $q->whereBetween('payment_date', [$startDate, $endDate]);
-            })->sum('amount');
+            // 1. Calculate Exchange Rate early for currency conversions
+            $dollarRate = (float) (\App\Models\Product::latest('id')->value('dollar_exchange') ?? 1530);
+            if ($dollarRate <= 0) {
+                $dollarRate = 1530;
+            }
 
-            // Collected debt payments
-            $collectedDebtPayments = DebtPayment::when($startDate && $endDate, function ($q) use ($startDate, $endDate) {
-                $q->whereBetween('payment_date', [$startDate, $endDate]);
-            })->sum('amount');
+            // Collected installment payments by customer currency
+            $collectedInstallmentsDinar = (float) (InstallmentPayment::query()
+                ->join('installments', 'installments.id', '=', 'installment_payments.installment_id')
+                ->join('receipt_products', 'receipt_products.id', '=', 'installments.receipt_product_id')
+                ->join('receipts', 'receipts.id', '=', 'receipt_products.receipt_id')
+                ->join('customers', 'customers.id', '=', 'receipts.customer_id')
+                ->where('customers.type', 1)
+                ->when($startDate && $endDate, fn($q) => $q->whereBetween('installment_payments.payment_date', [$startDate, $endDate]))
+                ->sum('installment_payments.amount') ?? 0);
+
+            $collectedInstallmentsDollar = (float) (InstallmentPayment::query()
+                ->join('installments', 'installments.id', '=', 'installment_payments.installment_id')
+                ->join('receipt_products', 'receipt_products.id', '=', 'installments.receipt_product_id')
+                ->join('receipts', 'receipts.id', '=', 'receipt_products.receipt_id')
+                ->join('customers', 'customers.id', '=', 'receipts.customer_id')
+                ->where('customers.type', 0)
+                ->when($startDate && $endDate, fn($q) => $q->whereBetween('installment_payments.payment_date', [$startDate, $endDate]))
+                ->sum('installment_payments.amount') ?? 0);
+
+            $collectedInstallmentPayments = $collectedInstallmentsDinar + ($collectedInstallmentsDollar * $dollarRate);
+
+            // Collected debt payments by customer currency
+            $collectedDebtPaymentsDinar = (float) (DebtPayment::query()
+                ->join('debts', 'debts.id', '=', 'debt_payments.debt_id')
+                ->join('customers', 'customers.id', '=', 'debts.customer_id')
+                ->where('customers.type', 1)
+                ->when($startDate && $endDate, fn($q) => $q->whereBetween('debt_payments.payment_date', [$startDate, $endDate]))
+                ->sum('debt_payments.amount') ?? 0);
+
+            $collectedDebtPaymentsDollar = (float) (DebtPayment::query()
+                ->join('debts', 'debts.id', '=', 'debt_payments.debt_id')
+                ->join('customers', 'customers.id', '=', 'debts.customer_id')
+                ->where('customers.type', 0)
+                ->when($startDate && $endDate, fn($q) => $q->whereBetween('debt_payments.payment_date', [$startDate, $endDate]))
+                ->sum('debt_payments.amount') ?? 0);
+
+            $collectedDebtPayments = $collectedDebtPaymentsDinar + ($collectedDebtPaymentsDollar * $dollarRate);
 
             // Financial transactions grouped by agent type & transaction type
             $transactions = FinancialTransaction::select(
@@ -77,20 +111,55 @@ class FinancialReportService extends Service
 
             // Other calculations
             $totalExpenses = Payment::when($startDate && $endDate, fn($q) => $q->whereBetween('payment_date', [$startDate, $endDate]))->sum('amount');
-            $totaldebt     = Debt::with('debtPayments')
-                ->when($startDate && $endDate, fn($q) => $q->whereBetween('debt_date', [$startDate, $endDate]))
+
+            // Normal Debts by customer currency
+            $debtsDinar = (float) Debt::with(['debtPayments'])
+                ->whereHas('customer', fn($q) => $q->where('type', 1))
+                ->when($startDate && $endDate, fn($q) => $q->whereBetween('debts.debt_date', [$startDate, $endDate]))
                 ->get()
-                ->sum(function ($debt) {
-                    return max(0, $debt->remaining_debt - $debt->debtPayments->sum('amount'));
-                });
+                ->sum(fn($d) => max(0, $d->remaining_debt - $d->debtPayments->sum('amount')));
 
-            $totalInstallmentSalesValueInPeriod = Receipt::when($startDate && $endDate, fn($q) => $q->whereBetween('receipt_date', [$startDate, $endDate]))
-                ->where('type', 0)
-                ->sum('total_price');
+            $debtsDollar = (float) Debt::with(['debtPayments'])
+                ->whereHas('customer', fn($q) => $q->where('type', 0))
+                ->when($startDate && $endDate, fn($q) => $q->whereBetween('debts.debt_date', [$startDate, $endDate]))
+                ->get()
+                ->sum(fn($d) => max(0, $d->remaining_debt - $d->debtPayments->sum('amount')));
 
-            $totalCashSalesRevenue = Receipt::when($startDate && $endDate, fn($q) => $q->whereBetween('receipt_date', [$startDate, $endDate]))
-                ->where('type', 1)
-                ->sum('total_price');
+            $totaldebt = $debtsDinar + ($debtsDollar * $dollarRate);
+
+            // Installment sales in period
+            $totalInstallmentSalesDinar = (float) (Receipt::query()
+                ->join('customers', 'customers.id', '=', 'receipts.customer_id')
+                ->where('receipts.type', 0)
+                ->where('customers.type', 1)
+                ->when($startDate && $endDate, fn($q) => $q->whereBetween('receipts.receipt_date', [$startDate, $endDate]))
+                ->sum('receipts.total_price') ?? 0);
+
+            $totalInstallmentSalesDollar = (float) (Receipt::query()
+                ->join('customers', 'customers.id', '=', 'receipts.customer_id')
+                ->where('receipts.type', 0)
+                ->where('customers.type', 0)
+                ->when($startDate && $endDate, fn($q) => $q->whereBetween('receipts.receipt_date', [$startDate, $endDate]))
+                ->sum('receipts.total_price') ?? 0);
+
+            $totalInstallmentSalesValueInPeriod = $totalInstallmentSalesDinar + ($totalInstallmentSalesDollar * $dollarRate);
+
+            // Cash sales in period
+            $totalCashSalesDinar = (float) (Receipt::query()
+                ->join('customers', 'customers.id', '=', 'receipts.customer_id')
+                ->where('receipts.type', 1)
+                ->where('customers.type', 1)
+                ->when($startDate && $endDate, fn($q) => $q->whereBetween('receipts.receipt_date', [$startDate, $endDate]))
+                ->sum('receipts.total_price') ?? 0);
+
+            $totalCashSalesDollar = (float) (Receipt::query()
+                ->join('customers', 'customers.id', '=', 'receipts.customer_id')
+                ->where('receipts.type', 1)
+                ->where('customers.type', 0)
+                ->when($startDate && $endDate, fn($q) => $q->whereBetween('receipts.receipt_date', [$startDate, $endDate]))
+                ->sum('receipts.total_price') ?? 0);
+
+            $totalCashSalesRevenue = $totalCashSalesDinar + ($totalCashSalesDollar * $dollarRate);
 
             $totalRevenueFromSalesInPeriod = $collectedDebtPayments + $collectedInstallmentPayments + $totalCashSalesRevenue;
 
@@ -100,28 +169,71 @@ class FinancialReportService extends Service
 
             $totalSalesValueForProfit = $totalCashSalesRevenue + $totalInstallmentSalesValueInPeriod;
 
-            $firstpay = Installment::when($startDate && $endDate, fn($q) =>
-                    $q->whereHas('receiptProduct.receipt', fn($r) => $r->whereBetween('receipt_date', [$startDate, $endDate])))
-                ->sum('first_pay');
+            // First pay (down payments)
+            $firstpayDinar = (float) (Installment::query()
+                ->join('receipt_products', 'receipt_products.id', '=', 'installments.receipt_product_id')
+                ->join('receipts', 'receipts.id', '=', 'receipt_products.receipt_id')
+                ->join('customers', 'customers.id', '=', 'receipts.customer_id')
+                ->where('customers.type', 1)
+                ->when($startDate && $endDate, fn($q) => $q->whereBetween('receipts.receipt_date', [$startDate, $endDate]))
+                ->sum('installments.first_pay') ?? 0);
 
-            $adjustedCOGS = $totalInstallmentSalesValueInPeriod - $firstpay - $collectedInstallmentPayments;
+            $firstpayDollar = (float) (Installment::query()
+                ->join('receipt_products', 'receipt_products.id', '=', 'installments.receipt_product_id')
+                ->join('receipts', 'receipts.id', '=', 'receipt_products.receipt_id')
+                ->join('customers', 'customers.id', '=', 'receipts.customer_id')
+                ->where('customers.type', 0)
+                ->when($startDate && $endDate, fn($q) => $q->whereBetween('receipts.receipt_date', [$startDate, $endDate]))
+                ->sum('installments.first_pay') ?? 0);
+
+            $firstpay = $firstpayDinar + ($firstpayDollar * $dollarRate);
+
+            $adjustedCOGSDinar = max(0, $totalInstallmentSalesDinar - $firstpayDinar - $collectedInstallmentsDinar);
+            $adjustedCOGSDollar = max(0, $totalInstallmentSalesDollar - $firstpayDollar - $collectedInstallmentsDollar);
+            $adjustedCOGS = $adjustedCOGSDinar + ($adjustedCOGSDollar * $dollarRate);
+
+            $customerDebtsDinar = $adjustedCOGSDinar + $debtsDinar;
+            $customerDebtsDollar = $adjustedCOGSDollar + $debtsDollar;
+
+            $customerSalesDinar = $totalInstallmentSalesDinar + $totalCashSalesDinar;
+            $customerSalesDollar = $totalInstallmentSalesDollar + $totalCashSalesDollar;
+
+            $customerCollectedDinar = $collectedInstallmentsDinar + $collectedDebtPaymentsDinar + $totalCashSalesDinar;
+            $customerCollectedDollar = $collectedInstallmentsDollar + $collectedDebtPaymentsDollar + $totalCashSalesDollar;
+
             $grossProfitFromSalesInPeriod = $totalSalesValueForProfit - $cogsForPeriodSales;
             $operatingNetProfit = $grossProfitFromSalesInPeriod - $totalExpenses;
 
-            // 1. Calculate Exchange Rate
-            $dollarRate = (float) (\App\Models\Product::latest('id')->value('dollar_exchange') ?? 1530);
-            if ($dollarRate <= 0) {
-                $dollarRate = 1530;
-            }
-
-            // 2. Calculate Lifetime Inflows
-            $cashSalesInflow = (float) \App\Models\Receipt::where('type', 1)->get()->sum(function($r) {
-                return max(0, $r->total_price - ($r->discount ?? 0));
-            });
-            $installmentDownPayments = (float) \App\Models\Installment::sum('first_pay');
-            $debtUpfrontPayments = (float) \App\Models\Receipt::where('type', 2)->sum('paid');
-            $collectedInstallments = (float) \App\Models\InstallmentPayment::sum('amount');
-            $collectedDebts = (float) \App\Models\DebtPayment::sum('amount');
+            // 2. Calculate Lifetime Inflows (converting dollar customers to dinar)
+            $cashSalesInflow = (float) \App\Models\Receipt::with('customer')
+                ->where('type', 1)->get()->sum(function($r) use ($dollarRate) {
+                    $val = max(0, $r->total_price - ($r->discount ?? 0));
+                    $isDollar = ($r->customer && $r->customer->getRawOriginal('type') == 0);
+                    return $isDollar ? ($val * $dollarRate) : $val;
+                });
+            $installmentDownPayments = (float) (Installment::query()
+                ->join('receipt_products', 'receipt_products.id', '=', 'installments.receipt_product_id')
+                ->join('receipts', 'receipts.id', '=', 'receipt_products.receipt_id')
+                ->join('customers', 'customers.id', '=', 'receipts.customer_id')
+                ->selectRaw('SUM(CASE WHEN customers.type = 0 THEN installments.first_pay * ? ELSE installments.first_pay END) as total', [$dollarRate])
+                ->value('total') ?? 0);
+            $debtUpfrontPayments = (float) (Receipt::query()
+                ->join('customers', 'customers.id', '=', 'receipts.customer_id')
+                ->where('receipts.type', 2)
+                ->selectRaw('SUM(CASE WHEN customers.type = 0 THEN receipts.paid * ? ELSE receipts.paid END) as total', [$dollarRate])
+                ->value('total') ?? 0);
+            $collectedInstallments = (float) (InstallmentPayment::query()
+                ->join('installments', 'installments.id', '=', 'installment_payments.installment_id')
+                ->join('receipt_products', 'receipt_products.id', '=', 'installments.receipt_product_id')
+                ->join('receipts', 'receipts.id', '=', 'receipt_products.receipt_id')
+                ->join('customers', 'customers.id', '=', 'receipts.customer_id')
+                ->selectRaw('SUM(CASE WHEN customers.type = 0 THEN installment_payments.amount * ? ELSE installment_payments.amount END) as total', [$dollarRate])
+                ->value('total') ?? 0);
+            $collectedDebts = (float) (DebtPayment::query()
+                ->join('debts', 'debts.id', '=', 'debt_payments.debt_id')
+                ->join('customers', 'customers.id', '=', 'debts.customer_id')
+                ->selectRaw('SUM(CASE WHEN customers.type = 0 THEN debt_payments.amount * ? ELSE debt_payments.amount END) as total', [$dollarRate])
+                ->value('total') ?? 0);
 
             $totalLifetimeInflows = $cashSalesInflow + $installmentDownPayments + $debtUpfrontPayments + $collectedInstallments + $collectedDebts;
 
@@ -175,6 +287,16 @@ class FinancialReportService extends Service
                         'stock_value_usd'                         => (float) $stockValueUsd,
                         'capital'                                 => (float) $capital,
                         'dollar_rate'                             => (float) $dollarRate,
+                        'customer_debts_dinar'                    => (float) $customerDebtsDinar,
+                        'customer_debts_dollar'                   => (float) $customerDebtsDollar,
+                        'customer_installment_debts_dinar'        => (float) $adjustedCOGSDinar,
+                        'customer_installment_debts_dollar'       => (float) $adjustedCOGSDollar,
+                        'customer_normal_debts_dinar'             => (float) $debtsDinar,
+                        'customer_normal_debts_dollar'            => (float) $debtsDollar,
+                        'customer_sales_dinar'                    => (float) $customerSalesDinar,
+                        'customer_sales_dollar'                   => (float) $customerSalesDollar,
+                        'customer_collected_dinar'                => (float) $customerCollectedDinar,
+                        'customer_collected_dollar'               => (float) $customerCollectedDollar,
                     ] + $financialTransactions,
                     'cash_flow_summary' => [
                         'cash_inflow_from_collected_installments' => (float) $collectedInstallmentPayments,

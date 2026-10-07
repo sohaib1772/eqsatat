@@ -37,7 +37,7 @@ class AmountReceiptService extends Service
                         $query->where('receipt_number', 'like', "%" . $filteringData['receipt_number'] . "%" );
                     })
                     ->orderByDesc('receipt_date')
-                    ->paginate(10);
+                    ->paginate(30);
             });
 
             return $this->successResponse('تم استرجاع وصولات المبالغ بنجاح', 200, $receipts);

@@ -32,8 +32,8 @@ class StoreDebtData extends FormRequest
         return [
 
             'customer_id' => 'required|exists:customers,id',
-            'payment_amount' => 'required|integer',
-            'remaining_debt' => 'required|integer',
+            'payment_amount' => 'required|numeric',
+            'remaining_debt' => 'required|numeric',
             'debt_date' => 'required|date|before:now',
             'description'=>'nullable|string',
         ];

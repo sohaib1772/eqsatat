@@ -24,9 +24,9 @@ class StoreAmountReceiptData extends FormRequest
         return [
             'receipt_number'   => 'required|unique:amount_receipts,receipt_number',
             'customer_id'      => 'required|exists:customers,id',
-            'amount'           => 'required|integer|min:1',
+            'amount'           => 'required|numeric|min:0.01',
             'receipt_date'     => 'required|date|before_or_equal:now',
-            'remaining_amount' => 'required|integer',
+            'remaining_amount' => 'required|numeric',
             'notes'            => 'nullable|string',
         ];
     }

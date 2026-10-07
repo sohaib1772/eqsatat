@@ -26,7 +26,7 @@ class StoreInstallmentPaymentReceiptData extends FormRequest
     public function rules(): array
     {
         return [
-            'amount' => ['required', 'integer', new StoreValidInstallmentReceiptAmount(Customer::findOrFail($this->route('id')))],
+            'amount' => ['required', 'numeric', new StoreValidInstallmentReceiptAmount(Customer::findOrFail($this->route('id')))],
         ];
     }    /**
     * Handle a failed validation attempt.

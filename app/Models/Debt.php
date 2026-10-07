@@ -36,8 +36,8 @@ class Debt extends Model
     protected $casts = [
 
         'customer_id'    => 'integer',
-        'payment_amount'  => 'integer',
-        'remaining_debt' => 'integer',
+        'payment_amount'  => 'float',
+        'remaining_debt' => 'float',
         'debt_date'      => 'date',
         'description' => 'string',
     ];

@@ -166,4 +166,25 @@ public function show($id): JsonResponse
         : $this->error(null, $result['message'], $result['status']);
 }
 
+    /**
+     * Convert customer currency and historical records.
+     *
+     * @param \Illuminate\Http\Request $request
+     * @param int $id Customer ID
+     * @return JsonResponse
+     */
+    public function convertCurrency(\Illuminate\Http\Request $request, $id): JsonResponse
+    {
+        $validated = $request->validate([
+            'exchange_rate'   => 'required|numeric|min:0.0001',
+            'target_currency' => 'nullable|in:دولار,دينار',
+        ]);
+
+        $result = $this->customerService->convertCustomerCurrency($id, $validated);
+
+        return $result['status'] === 200
+            ? $this->success(isset($result['data']) ? new CustomerResource($result['data']) : null, $result['message'], $result['status'])
+            : $this->error(null, $result['message'], $result['status']);
+    }
+
 }

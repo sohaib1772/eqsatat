@@ -123,6 +123,7 @@ Route::middleware('jwt')->group(function () {
     Route::get('debts/customer/{id}', [CustomerController::class, 'getCustomerDebts']);  //  Fetch customer debts
     Route::get('receiptProducts/customer/{id}', [CustomerController::class, 'getCustomerReceiptProducts']);  //  Fetch products per customer
     Route::get('receipt/customer/{id}', [CustomerController::class, 'getCustomerReceipt']);  //  View all receipts by customer
+    Route::post('customer/{id}/convert-currency', [CustomerController::class, 'convertCurrency']); // Convert customer currency
 
     //  Agent Management
     Route::apiResource('agent', AgentController::class)->names([

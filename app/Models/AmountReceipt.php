@@ -30,8 +30,8 @@ class AmountReceipt extends Model
     protected $casts = [
         'customer_id'      => 'integer',
         'user_id'          => 'integer',
-        'amount'           => 'integer',
-        'remaining_amount' => 'integer',
+        'amount'           => 'float',
+        'remaining_amount' => 'float',
         'receipt_date'     => 'date',
     ];
 

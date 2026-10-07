@@ -27,7 +27,7 @@ class StoreInstallmentPaymentData extends FormRequest
     {
         return [
             'payment_date' => 'required|date',
-            'amount' => ['required', 'integer', new StoreValidInstallmentAmount(Installment::findOrFail($this->route('id')))],
+            'amount' => ['required', 'numeric', new StoreValidInstallmentAmount(Installment::findOrFail($this->route('id')))],
 
         ];
     }

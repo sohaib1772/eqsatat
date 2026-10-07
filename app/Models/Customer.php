@@ -35,6 +35,7 @@ class Customer extends Model
         'Record_id',    // Associated record identifier
         'Page_id',      // Associated page identifier
         'status',       // Customer's status (e.g., 'Old' or 'New')
+        'type',         // Currency type: 0 => 'دولار', 1 => 'دينار'
     ];
 
     /**
@@ -141,6 +142,11 @@ class Customer extends Model
         1 => 'جديد',  // New customer
     ];
 
+    const CURRENCY_TYPE_MAP = [
+        0 => 'دولار', // Dollar
+        1 => 'دينار', // Dinar
+    ];
+
     /**
      * Mutator for the 'status' attribute.
      *
@@ -153,6 +159,21 @@ class Customer extends Model
         return Attribute::make(
             get: fn($value) => self::TYPE_MAP[$value] ?? 'Unknown',
             set: fn($value) => array_search($value, self::TYPE_MAP) ?? $value
+        );
+    }
+
+    /**
+     * Mutator for the 'type' (currency) attribute.
+     *
+     * 0 => 'دولار', 1 => 'دينار'
+     *
+     * @return \Illuminate\Database\Eloquent\Casts\Attribute
+     */
+    public function type(): Attribute
+    {
+        return Attribute::make(
+            get: fn($value) => self::CURRENCY_TYPE_MAP[(int) $value] ?? 'دينار',
+            set: fn($value) => is_numeric($value) ? (int)$value : (array_search($value, self::CURRENCY_TYPE_MAP) !== false ? array_search($value, self::CURRENCY_TYPE_MAP) : 1)
         );
     }
 
@@ -180,6 +201,13 @@ class Customer extends Model
             $status = array_search($filteringData['status'], self::TYPE_MAP);
             if ($status !== false) {
                 $query->where('status', $status);
+            }
+        }
+
+        if (isset($filteringData['type'])) {
+            $typeVal = is_numeric($filteringData['type']) ? (int)$filteringData['type'] : array_search($filteringData['type'], self::CURRENCY_TYPE_MAP);
+            if ($typeVal !== false) {
+                $query->where('type', $typeVal);
             }
         }
 
