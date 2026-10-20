@@ -77,6 +77,7 @@ Route::middleware('jwt')->group(function () {
     ]);
 
     //  Product Management (CRUD)
+    Route::post('product/update-all-exchange-rate', [ProductController::class, 'updateAllExchangeRate']);
     Route::apiResource('product', ProductController::class)->names([
         'index' => 'product.list',
         'store' => 'product.create',

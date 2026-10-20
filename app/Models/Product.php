@@ -201,7 +201,7 @@ class Product extends Model
      *
      * @return void
      */
-    protected static function clearProductCache()
+    public static function clearProductCache()
     {
         $cacheKeys = Cache::get('all_products_keys', []);
         foreach ($cacheKeys as $key) {

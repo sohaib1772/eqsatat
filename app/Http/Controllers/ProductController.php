@@ -124,4 +124,23 @@ class ProductController extends Controller
             ? self::success($result['data'], $result['message'], $result['status'])
             : self::error(null, $result['message'], $result['status']);
     }
+
+    /**
+     * Update exchange rate for all products.
+     *
+     * @param Request $request
+     * @return JsonResponse
+     */
+    public function updateAllExchangeRate(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'dollar_exchange' => 'required|numeric|min:1',
+        ]);
+
+        $result = $this->productService->updateAllExchangeRate((int)$validated['dollar_exchange']);
+
+        return $result['status'] === 200
+            ? self::success(null, $result['message'], $result['status'])
+            : self::error(null, $result['message'], $result['status']);
+    }
 }

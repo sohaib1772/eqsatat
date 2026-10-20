@@ -333,4 +333,50 @@ class ProductService extends Service
             ];
         }
     }
+
+    /**
+     * Update exchange rate for all products in the database.
+     *
+     * @param int $dollarExchange
+     * @return array
+     */
+    public function updateAllExchangeRate(int $dollarExchange): array
+    {
+        DB::beginTransaction();
+
+        try {
+            $userId = Auth::id();
+
+            // Update all products exchange rate
+            Product::query()->update([
+                'dollar_exchange' => $dollarExchange,
+            ]);
+
+            // Log activity
+            ActivitiesLog::create([
+                'user_id'     => $userId,
+                'description' => 'تم تغيير سعر الصرف لجميع المنتجات إلى: ' . $dollarExchange,
+                'type_id'     => 0,
+                'type_type'   => Product::class,
+            ]);
+
+            DB::commit();
+
+            // Clear cache
+            Product::clearProductCache();
+
+            return [
+                'status'  => 200,
+                'message' => 'تم تحديث سعر الصرف لجميع المنتجات بنجاح.',
+            ];
+        } catch (Exception $e) {
+            DB::rollBack();
+            Log::error('Error in updateAllExchangeRate: ' . $e->getMessage());
+
+            return [
+                'status'  => 500,
+                'message' => 'حدث خطأ أثناء تحديث سعر الصرف لجميع المنتجات، يرجى المحاولة مرة أخرى.',
+            ];
+        }
+    }
 }
